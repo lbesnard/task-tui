@@ -105,6 +105,7 @@ class TaskProApp(App):
     BINDINGS = [
         Binding("f", "fuzzy_find", "Search"),
         Binding("t", "date_mode", "Quick Date"),  # Our trigger
+        Binding("p", "prio_mode", "Quick Priority"),
         Binding("m", "edit_mode", "Modify"),
         Binding("n", "new_task", "New"),
         Binding("s", "save_task", "Save"),
@@ -181,6 +182,19 @@ class TaskProApp(App):
                     self.update_context_bar()
                 event.stop()
                 event.prevent_default()
+            # --- PRIORITY LOGIC ---
+            elif self.date_context == "priority":
+                if key == "h":
+                    self.apply_quick_prio("H")
+                elif key == "m":
+                    self.apply_quick_prio("M")
+                elif key == "l":
+                    self.apply_quick_prio("L")
+                elif key == "x":
+                    self.apply_quick_prio("")
+                elif key == "escape":
+                    self.exit_context_mode()
+                event.stop()
             event.stop()
 
     def action_date_mode(self):
@@ -194,6 +208,31 @@ class TaskProApp(App):
         except:
             self.notify("Select a task first!", severity="error")
 
+    def action_prio_mode(self):
+        try:
+            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
+                self.query_one(DataTable).cursor_coordinate
+            )
+            self.active_uuid = row_key.value
+            self.date_context = "priority"
+            self.update_context_bar()
+        except:
+            self.notify("Select a task first!", severity="error")
+
+    def apply_quick_prio(self, prio_level: str):
+        # Taskwarrior uses 'priority:' to clear it, or 'priority:H' to set it
+        subprocess.run(
+            ["task", self.active_uuid, "modify", f"priority:{prio_level}"],
+            capture_output=True,
+        )
+        self.notify(f"Priority set to {prio_level if prio_level else 'None'}")
+        self.exit_context_mode()
+        self.refresh_tasks()
+
+    def exit_context_mode(self):  # Renamed from exit_date_mode
+        self.date_context = None
+        self.query_one("#context_bar").remove_class("visible")
+
     def update_context_bar(self):
         bar = self.query_one("#context_bar")
         bar.add_class("visible")
@@ -205,6 +244,10 @@ class TaskProApp(App):
         elif self.date_context == "end_of":
             bar.update(
                 "📅  END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
+            )
+        elif self.date_context == "priority":
+            bar.update(
+                "⚡  SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
             )
 
     def exit_date_mode(self):
