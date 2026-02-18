@@ -25,7 +25,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 ### Quick Install
 
 ```
-python3 -m pip install git+https://github.com/your-username/task-tui.git
+python3 -m pip install git+https://github.com/lbesnard/task-tui.git
 ```
 
 ### Setup
@@ -33,7 +33,7 @@ python3 -m pip install git+https://github.com/your-username/task-tui.git
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/your-username/task-tui.git
+git clone https://github.com/lbesnard/task-tui.git
 cd task-tui
 ```
 
