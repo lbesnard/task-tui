@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "task-tui"
+version = "0.1.0"
+description = "A modern, interactive TUI for Taskwarrior built with Textual"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "L. Besnard" }]
+license = { text = "MIT" }
+keywords = ["taskwarrior", "tui", "productivity", "cli"]
+dependencies = ["textual>=0.85.0"]
+
+[project.scripts]
+task-tui = "task_tui.app:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["task_tui*"]
