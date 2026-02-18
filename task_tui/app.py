@@ -75,14 +75,7 @@ class FuzzySearchScreen(ModalScreen):
 # --- MAIN APP ---
 class TaskProApp(App):
     CSS = """
-    #fuzzy_container {
-        background: $surface;
-        border: thick $primary;
-        width: 70%;
-        height: 70%;
-        align: center middle;
-        padding: 1;
-    }
+    #fuzzy_container { background: $surface; border: thick $primary; width: 70%; height: 70%; align: center middle; padding: 1; }
     #fuzzy_header { text-align: center; text-style: bold; color: $accent; }
     #fuzzy_help { text-align: center; color: $text-muted; margin-bottom: 1; }
     #fuzzy_list { height: 1fr; margin-top: 1; border: solid $accent; }
@@ -95,10 +88,23 @@ class TaskProApp(App):
     .metadata { color: #888888; text-style: bold; margin-top: 1; }
     Input, Select, TextArea { border: tall $primary; margin-bottom: 0; }
     TextArea { height: 5; }
+
+    #context_bar {
+        background: $accent;
+        color: white;
+        content-align: center middle;
+        text-style: bold;
+        display: none;
+        height: 1;
+        width: 100%;
+        padding: 0 1;
+    }
+    .visible { display: block !important; }
     """
 
     BINDINGS = [
         Binding("f", "fuzzy_find", "Search"),
+        Binding("t", "date_mode", "Quick Date"),  # Our trigger
         Binding("m", "edit_mode", "Modify"),
         Binding("n", "new_task", "New"),
         Binding("s", "save_task", "Save"),
@@ -113,12 +119,13 @@ class TaskProApp(App):
         self.active_uuid = None
         self.original_annotations = []
         self.is_modifying = False
-        # Column sorting state: (column_index, descending_boolean)
         self.sort_state = {"index": 0, "reverse": False}
         self.raw_tasks = []
+        self.date_context = None  # None, "main", or "end_of"
 
     def compose(self) -> ComposeResult:
         yield Header()
+        yield Static("", id="context_bar")  # Custom bar for the menu
         with Horizontal(id="workspace"):
             yield DataTable(id="list_panel", cursor_type="row")
             with Vertical(id="editor_panel"):
@@ -146,6 +153,73 @@ class TaskProApp(App):
     def on_mount(self) -> None:
         self.refresh_tasks()
 
+    # --- KEY HANDLING ---
+    def on_key(self, event) -> None:
+        if self.date_context:
+            key = event.key.lower()
+            if self.date_context == "main":
+                if key == "n":
+                    self.apply_quick_date("today")
+                elif key == "t":
+                    self.apply_quick_date("tomorrow")
+                elif key == "e":
+                    self.date_context = "end_of"
+                    self.update_context_bar()
+                elif key == "escape":
+                    self.exit_date_mode()
+                event.stop()
+                event.prevent_default()
+            elif self.date_context == "end_of":
+                if key == "w":
+                    self.apply_quick_date("eow")
+                elif key == "m":
+                    self.apply_quick_date("eom")
+                elif key == "y":
+                    self.apply_quick_date("eoy")
+                elif key == "escape":
+                    self.date_context = "main"
+                    self.update_context_bar()
+                event.stop()
+                event.prevent_default()
+            event.stop()
+
+    def action_date_mode(self):
+        try:
+            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
+                self.query_one(DataTable).cursor_coordinate
+            )
+            self.active_uuid = row_key.value
+            self.date_context = "main"
+            self.update_context_bar()
+        except:
+            self.notify("Select a task first!", severity="error")
+
+    def update_context_bar(self):
+        bar = self.query_one("#context_bar")
+        bar.add_class("visible")
+        if self.date_context == "main":
+            # Escaping brackets by doubling them
+            bar.update(
+                "📅  SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
+            )
+        elif self.date_context == "end_of":
+            bar.update(
+                "📅  END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
+            )
+
+    def exit_date_mode(self):
+        self.date_context = None
+        self.query_one("#context_bar").remove_class("visible")
+
+    def apply_quick_date(self, date_str: str):
+        subprocess.run(
+            ["task", self.active_uuid, "modify", f"due:{date_str}"], capture_output=True
+        )
+        self.notify(f"Set to {date_str}")
+        self.exit_date_mode()
+        self.refresh_tasks()
+
+    # --- TABLE & LOGIC ---
     def action_refresh_tasks(self) -> None:
         self.refresh_tasks()
 
@@ -164,8 +238,6 @@ class TaskProApp(App):
     def update_table_view(self) -> None:
         table = self.query_one(DataTable)
         table.clear(columns=True)
-
-        # Define Columns and mapping keys
         cols = [
             ("ID", "id"),
             ("Project", "project"),
@@ -174,8 +246,6 @@ class TaskProApp(App):
             ("Tags", "tags"),
             ("Description", "description"),
         ]
-
-        # Add columns with sorting indicator
         for i, (label, _) in enumerate(cols):
             if i == self.sort_state["index"]:
                 icon = " ↓" if self.sort_state["reverse"] else " ↑"
@@ -183,20 +253,15 @@ class TaskProApp(App):
             else:
                 table.add_column(label, key=label)
 
-        # Sort data
         sort_key = cols[self.sort_state["index"]][1]
 
         def get_sort_val(t):
             val = t.get(sort_key, "")
-            if isinstance(val, list):
-                return ",".join(val)
-            return str(val).lower()
+            return ",".join(val) if isinstance(val, list) else str(val).lower()
 
         sorted_data = sorted(
             self.raw_tasks, key=get_sort_val, reverse=self.sort_state["reverse"]
         )
-
-        # Populate rows
         for t in sorted_data:
             prio = t.get("priority", "X")
             prio_color = {"H": "red", "M": "yellow", "L": "green", "X": "white"}.get(
@@ -212,19 +277,13 @@ class TaskProApp(App):
                 key=t.get("uuid"),
             )
 
-    # --- CLICK TO SORT HANDLER ---
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
-        """Fires when a column header is clicked."""
         if self.sort_state["index"] == event.column_index:
-            # Toggle direction if clicking the same column
             self.sort_state["reverse"] = not self.sort_state["reverse"]
         else:
-            # New column clicked
             self.sort_state["index"] = event.column_index
             self.sort_state["reverse"] = False
-
         self.update_table_view()
-        self.notify(f"Sorting by {event.column_key.value}")
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if not self.is_modifying and event.row_key and event.row_key.value:
@@ -238,7 +297,6 @@ class TaskProApp(App):
             task = json.loads(res.stdout)[0]
         except:
             return
-
         self.active_uuid = uuid
         self.query_one("#uuid_display").update(uuid)
         self.query_one("#inp_desc").value = task.get("description", "")
@@ -248,11 +306,9 @@ class TaskProApp(App):
         ]
         self.query_one("#inp_tags").value = " ".join(task.get("tags", []))
         self.query_one("#sel_prio").value = task.get("priority", "X")
-
         anns = [a["description"] for a in task.get("annotations", [])]
         self.original_annotations = anns.copy()
         self.query_one("#inp_ann").text = "\n".join(anns)
-
         if focus:
             self.is_modifying = True
             self.query_one("#inp_desc").focus()
