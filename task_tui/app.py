@@ -1,7 +1,5 @@
 import json
 import subprocess
-import re
-import os
 from textual.app import App, ComposeResult
 from textual.widgets import (
     Header,
@@ -99,7 +97,8 @@ class TaskProApp(App):
         Binding("p", "prio_mode", "Prio"),
         Binding("m", "edit_mode", "Modify"),
         Binding("n", "new_task", "New"),
-        Binding("s", "save_task", "Save"),
+        Binding("shift+s", "save_task", "Save"),  # Changed to ctrl+s to free up 's'
+        Binding("s", "toggle_start", "Start/Stop"),
         Binding("d", "mark_done", "Done"),
         Binding("r", "refresh_tasks", "Refresh"),
         Binding("ctrl+z", "cancel_edit", "Back"),
@@ -149,7 +148,6 @@ class TaskProApp(App):
     def on_key(self, event) -> None:
         if self.date_context:
             key = event.key.lower()
-            # Main Date Context
             if self.date_context == "main":
                 if key == "n":
                     self.apply_quick_date("today")
@@ -161,7 +159,6 @@ class TaskProApp(App):
                 elif key == "escape":
                     self.exit_context_mode()
                 event.stop()
-            # End Of Context
             elif self.date_context == "end_of":
                 if key == "w":
                     self.apply_quick_date("eow")
@@ -173,7 +170,6 @@ class TaskProApp(App):
                     self.date_context = "main"
                     self.update_context_bar()
                 event.stop()
-            # Priority Context
             elif self.date_context == "priority":
                 if key == "h":
                     self.apply_quick_prio("H")
@@ -214,6 +210,21 @@ class TaskProApp(App):
             self.query_one(field).value = ""
         self.query_one("#uuid_display").update("NEW TASK")
         self.query_one("#inp_desc").focus()
+
+    def action_toggle_start(self):
+        if not self.active_uuid:
+            return
+        task = next((t for t in self.raw_tasks if t["uuid"] == self.active_uuid), None)
+        cmd = "stop" if task.get("start") else "start"
+        subprocess.run(["task", self.active_uuid, cmd])
+        self.refresh_tasks()
+
+    def action_mark_done(self):
+        if not self.active_uuid:
+            return
+        subprocess.run(["task", self.active_uuid, "done"])
+        self.refresh_tasks()
+        self.notify("Task completed!")
 
     def action_fuzzy_find(self):
         def on_select(uuid):
@@ -276,6 +287,15 @@ class TaskProApp(App):
 
     # --- DATA & TABLE ---
     def refresh_tasks(self) -> None:
+        table = self.query_one(DataTable)
+        # Remember current position
+        saved_row_key = None
+        if table.row_count > 0:
+            try:
+                saved_row_key = table.get_row_at(table.cursor_row).key
+            except:
+                pass
+
         res = subprocess.run(
             ["task", "status:pending", "export", "rc.json.array=on"],
             capture_output=True,
@@ -284,6 +304,13 @@ class TaskProApp(App):
         try:
             self.raw_tasks = json.loads(res.stdout)
             self.update_table_view()
+
+            # Restore position
+            if saved_row_key:
+                for idx, row_key in enumerate(table.rows):
+                    if row_key == saved_row_key:
+                        table.move_cursor(row=idx)
+                        break
         except:
             pass
 
@@ -308,7 +335,6 @@ class TaskProApp(App):
 
         sort_key = cols[self.sort_state["index"]][1]
 
-        # FIXED NUMERIC SORTING FOR URGENCY
         def sort_logic(t):
             val = t.get(sort_key, "")
             if sort_key == "urgency":
@@ -327,7 +353,10 @@ class TaskProApp(App):
             prio = t.get("priority", "X")
             prio_color = {"H": "red", "M": "yellow", "L": "green"}.get(prio, "white")
 
-            prefix = "⭐ " if uuid in self.selected_uuids else "  "
+            # Visual indicator for "Started" tasks
+            is_active = "▸ " if t.get("start") else "  "
+            prefix = "⭐ " if uuid in self.selected_uuids else is_active
+
             table.add_row(
                 f"{prefix}{t.get('id')}",
                 t.get("project", ""),
@@ -391,8 +420,6 @@ class TaskProApp(App):
         if not self.active_uuid:
             return
         dep_val = self.query_one("#inp_dep").value.replace(" ", "")
-
-        # Handle "NEW" vs existing UUID
         target = "add" if self.active_uuid == "NEW" else self.active_uuid
         cmd = ["task", target]
         if self.active_uuid != "NEW":
