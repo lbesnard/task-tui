@@ -38,7 +38,6 @@ class DependencyListScreen(ModalScreen):
     def on_mount(self) -> None:
         list_view = self.query_one("#dep_list")
         dep_set = {str(d) for d in self.dependencies}
-
         found = False
         for t in self.all_tasks:
             if str(t.get("id")) in dep_set or t.get("uuid") in dep_set:
@@ -50,7 +49,6 @@ class DependencyListScreen(ModalScreen):
                 item.uuid = t.get("uuid")
                 list_view.append(item)
                 found = True
-
         if not found:
             list_view.append(ListItem(Static("No active dependencies found.")))
         list_view.focus()
@@ -59,6 +57,10 @@ class DependencyListScreen(ModalScreen):
         if hasattr(event.item, "uuid"):
             self.dismiss(event.item.uuid)
         else:
+            self.dismiss(None)
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
             self.dismiss(None)
 
 
@@ -135,14 +137,15 @@ class TaskProApp(App):
     """
 
     BINDINGS = [
-        Binding("f", "fuzzy_find", "Search"),
+        Binding("/", "fuzzy_find", "Search"),
         Binding("v", "view_dependencies", "Deps"),
+        Binding("u", "undo", "Undo"),
         Binding("space", "toggle_selection", "Select"),
         Binding("t", "date_mode", "Date"),
         Binding("p", "prio_mode", "Prio"),
         Binding("m", "edit_mode", "Modify"),
         Binding("n", "new_task", "New"),
-        Binding("shift+s", "save_task", "Save"),
+        Binding("x", "save_task", "Save"),
         Binding("s", "toggle_start", "Start/Stop"),
         Binding("d", "mark_done", "Done"),
         Binding("r", "refresh_tasks", "Refresh"),
@@ -191,6 +194,12 @@ class TaskProApp(App):
         self.refresh_tasks()
 
     def on_key(self, event) -> None:
+        # Force Save even when inside an Input field
+        if event.key == "S":  # Shift+S
+            self.action_save_task()
+            event.stop()
+            return
+
         if self.date_context:
             key = event.key.lower()
             if self.date_context == "main":
@@ -248,8 +257,13 @@ class TaskProApp(App):
             )
 
     # --- ACTIONS ---
+    def action_undo(self):
+        subprocess.run(["task", "rc.confirmation=off", "undo"])
+        self.refresh_tasks()
+        self.notify("Last action undone")
+
     def action_view_dependencies(self):
-        if not self.active_uuid:
+        if not self.active_uuid or self.active_uuid == "NEW":
             return
         task = next((t for t in self.raw_tasks if t["uuid"] == self.active_uuid), None)
         if task and "depends" in task:
@@ -275,15 +289,16 @@ class TaskProApp(App):
         self.query_one("#inp_desc").focus()
 
     def action_toggle_start(self):
-        if not self.active_uuid:
+        if not self.active_uuid or self.active_uuid == "NEW":
             return
         task = next((t for t in self.raw_tasks if t["uuid"] == self.active_uuid), None)
-        cmd = "stop" if task.get("start") else "start"
-        subprocess.run(["task", self.active_uuid, cmd])
-        self.refresh_tasks()
+        if task:
+            cmd = "stop" if task.get("start") else "start"
+            subprocess.run(["task", self.active_uuid, cmd])
+            self.refresh_tasks()
 
     def action_mark_done(self):
-        if not self.active_uuid:
+        if not self.active_uuid or self.active_uuid == "NEW":
             return
         subprocess.run(["task", self.active_uuid, "done"])
         self.refresh_tasks()
@@ -302,18 +317,17 @@ class TaskProApp(App):
         self.push_screen(FuzzySearchScreen(), on_select)
 
     def action_fuzzy_find_dep(self):
-        def on_select(task_id):
-            if task_id:
+        def on_select(selected_uuid):
+            if selected_uuid:
                 current = self.query_one("#inp_dep").value
-                match = re.search(r"^\d+", task_id)
-                clean_id = match.group(0) if match else task_id
-                new_val = f"{current}, {clean_id}" if current else clean_id
+                # We now always use the UUID to ensure the dependency is permanent
+                new_val = f"{current}, {selected_uuid}" if current else selected_uuid
                 self.query_one("#inp_dep").value = new_val.strip(", ")
 
         self.push_screen(FuzzySearchScreen(), on_select)
 
     def action_toggle_selection(self):
-        if self.active_uuid:
+        if self.active_uuid and self.active_uuid != "NEW":
             if self.active_uuid in self.selected_uuids:
                 self.selected_uuids.remove(self.active_uuid)
             else:
@@ -337,7 +351,8 @@ class TaskProApp(App):
             list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
         )
         for uid in targets:
-            subprocess.run(["task", uid, "modify", f"due:{date_str}"])
+            if uid != "NEW":
+                subprocess.run(["task", uid, "modify", f"due:{date_str}"])
         self.refresh_tasks()
         self.exit_context_mode()
 
@@ -346,7 +361,8 @@ class TaskProApp(App):
             list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
         )
         for uid in targets:
-            subprocess.run(["task", uid, "modify", f"priority:{level}"])
+            if uid != "NEW":
+                subprocess.run(["task", uid, "modify", f"priority:{level}"])
         self.refresh_tasks()
         self.exit_context_mode()
 
@@ -388,7 +404,6 @@ class TaskProApp(App):
             ("Urg", "urgency"),
             ("Description", "description"),
         ]
-
         for i, (label, _) in enumerate(cols):
             icon = (
                 " 🔽"
@@ -420,8 +435,6 @@ class TaskProApp(App):
             prio_color = {"H": "red", "M": "yellow", "L": "green"}.get(prio, "white")
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.selected_uuids else is_active
-
-            # ADDED: Dependency Icon Logic
             dep_icon = "🔗 " if "depends" in t and t["depends"] else ""
 
             table.add_row(
@@ -431,7 +444,7 @@ class TaskProApp(App):
                 (t.get("due", "") or "")[:8],
                 ",".join(t.get("tags", [])),
                 f"{t.get('urgency', 0):.1f}",
-                f"{dep_icon}{t.get('description', '')}",  # Icon prepended to description
+                f"{dep_icon}{t.get('description', '')}",
                 key=uuid,
             )
 
@@ -455,11 +468,12 @@ class TaskProApp(App):
         self.query_one("#uuid_display").update(uuid)
         self.query_one("#inp_desc").value = task.get("description", "")
         self.query_one("#inp_proj").value = task.get("project", "")
-        self.query_one("#inp_due").value = (task.get("due", "") or "")[:8]
+        # Clean the date to YYYYMMDD format for the input field
+        due_date = (task.get("due", "") or "").replace("Z", "")[:8]
+        self.query_one("#inp_due").value = due_date
         self.query_one("#inp_tags").value = ",".join(task.get("tags", []))
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends", [])))
         self.query_one("#sel_prio").value = task.get("priority", "X")
-
         if focus:
             self.set_modify_mode(True)
             self.query_one("#inp_desc").focus()
@@ -486,27 +500,78 @@ class TaskProApp(App):
     def action_save_task(self):
         if not self.active_uuid:
             return
-        dep_val = self.query_one("#inp_dep").value.replace(" ", "")
+
+        # Clean the dependency string:
+        # 1. Remove all spaces
+        # 2. Ensure it's a clean comma-separated list of UUIDs/IDs
+        dep_raw = self.query_one("#inp_dep").value.strip()
+        dep_val = ",".join([d.strip() for d in dep_raw.split(",") if d.strip()])
+
         target = "add" if self.active_uuid == "NEW" else self.active_uuid
         cmd = ["task", target]
         if self.active_uuid != "NEW":
             cmd.append("modify")
+        # Fix the date format before sending to Taskwarrior
+        due_val = self.query_one("#inp_due").value.strip()
+        if due_val.isdigit() and len(due_val) == 8:
+            due_val += "T000000"  # Convert YYYYMMDD to YYYYMMDDT000000
 
         cmd.extend(
             [
                 f"description:{self.query_one('#inp_desc').value}",
                 f"project:{self.query_one('#inp_proj').value}",
-                f"due:{self.query_one('#inp_due').value}",
+                f"due:{due_val}",  # Use the corrected date value here
                 f"tags:{self.query_one('#inp_tags').value}",
                 f"depends:{dep_val}",
                 f"priority:{self.query_one('#sel_prio').value if self.query_one('#sel_prio').value != 'X' else ''}",
             ]
         )
-        subprocess.run(cmd)
-        self.set_modify_mode(False)
-        self.refresh_tasks()
-        self.query_one(DataTable).focus()
 
+        # IMPROVED EXECUTION: Capture errors for the debug log
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            # If Taskwarrior complains, we finally see why in the debug panel
+            error_msg = result.stderr.strip() or result.stdout.strip()
+            self.query_one("#debug_panel").update(f"❌ ERROR: {error_msg}")
+            self.notify("Save Failed! Check Debug Log.", severity="error")
+        else:
+            self.query_one("#debug_panel").update(f"✅ Saved successfully: {target}")
+            self.set_modify_mode(False)
+            self.refresh_tasks()
+            self.query_one(DataTable).focus()
+            self.notify("Saved!")
+
+    #
+    # def action_save_task(self):
+    #     if not self.active_uuid:
+    #         return
+    #
+    #     # Clean the dependency string: remove spaces and ensure it's a clean comma-separated list
+    #     dep_val = self.query_one("#inp_dep").value.strip().replace(" ", "")
+    #
+    #     target = "add" if self.active_uuid == "NEW" else self.active_uuid
+    #     cmd = ["task", target]
+    #     if self.active_uuid != "NEW":
+    #         cmd.append("modify")
+    #
+    #     cmd.extend(
+    #         [
+    #             f"description:{self.query_one('#inp_desc').value}",
+    #             f"project:{self.query_one('#inp_proj').value}",
+    #             f"due:{self.query_one('#inp_due').value}",
+    #             f"tags:{self.query_one('#inp_tags').value}",
+    #             f"depends:{dep_val}",  # Taskwarrior handles UUIDs here perfectly
+    #             f"priority:{self.query_one('#sel_prio').value if self.query_one('#sel_prio').value != 'X' else ''}",
+    #         ]
+    #     )
+    #
+    #     # Execute and refresh
+    #     subprocess.run(cmd)
+    #     self.set_modify_mode(False)
+    #     self.refresh_tasks()
+    #     self.query_one(DataTable).focus()
+    #
     def action_cancel_edit(self):
         self.set_modify_mode(False)
         self.query_one(DataTable).focus()
