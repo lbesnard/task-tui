@@ -436,12 +436,12 @@ class TaskProApp(App):
         table.clear(columns=True)
         cols = [
             ("ID", "id"),
-            ("Proj", "project"),
-            ("P", "priority"),
+            ("Proj.", "project"),
+            ("P.", "priority"),
             ("Due", "due"),
             ("Tags", "tags"),
-            ("Urg", "urgency"),
-            ("Description", "description"),
+            ("Urg.", "urgency"),
+            ("Desc.", "description"),
         ]
         for i, (label, _) in enumerate(cols):
             icon = (
@@ -452,6 +452,50 @@ class TaskProApp(App):
                 else ""
             )
             table.add_column(f"{label}{icon}", key=cols[i][1])
+
+        # --- PROJECT COLOR HASHING ---
+        def get_project_color(project_name):
+            if not project_name:
+                return "white"
+            # Standard ANSI/Xterm colors (avoiding very dark ones)
+            # This provides a palette of ~200 distinct colors
+            colors = [
+                "green",
+                "yellow",
+                "blue",
+                "magenta",
+                "cyan",
+                "white",
+                "bright_black",
+                "bright_red",
+                "bright_green",
+                "bright_yellow",
+                "bright_blue",
+                "bright_magenta",
+                "bright_cyan",
+                "bright_white",
+                "orange1",
+                "orange_red1",
+                "orchid",
+                "pale_green1",
+                "pale_turquoise1",
+                "hot_pink",
+                "indian_red",
+                "khaki1",
+                "light_coral",
+                "light_pink1",
+                "light_salmon1",
+                "light_sea_green",
+                "light_skyblue1",
+                "light_slate_blue",
+                "light_steel_blue1",
+                "medium_orchid1",
+                "medium_purple1",
+                "medium_spring_green",
+            ]
+            # Use a simple hash to pick a consistent color for the project name
+            idx = sum(ord(c) for c in project_name) % len(colors)
+            return colors[idx]
 
         sort_key = cols[self.sort_state["index"]][1]
 
@@ -484,17 +528,32 @@ class TaskProApp(App):
             uuid = t.get("uuid")
             prio = t.get("priority", "X")
             prio_color = {"H": "red", "M": "yellow", "L": "green"}.get(prio, "white")
+
+            # Get the color for the project
+            proj_name = t.get("project", "")
+            proj_color = get_project_color(proj_name)
+            # 2. Urgency Color Logic
+            urgency_val = t.get("urgency", 0)
+            # If urgency is above 20, wrap it in a red bold tag
+            urgency_str = f"{urgency_val:.1f}"
+            if urgency_val > 20:
+                urgency_display = f"[b][red]{urgency_str}[/][/]"
+            else:
+                urgency_display = urgency_str
+
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.selected_uuids else is_active
             dep_icon = "🔗 " if "depends" in t and t["depends"] else ""
 
             table.add_row(
                 f"{prefix}{t.get('id')}",
-                t.get("project", ""),
+                f"[{proj_color}]{proj_name}[/]",  # Apply the project color here
+                # t.get("project", ""),
                 f"[{prio_color}]{prio}[/]",
                 (t.get("due", "") or "")[:8],
                 ",".join(t.get("tags", [])),
-                f"{t.get('urgency', 0):.1f}",
+                # f"{t.get('urgency', 0):.1f}",
+                urgency_display,  # Use the conditionally styled urgency here
                 f"{dep_icon}{t.get('description', '')}",
                 key=uuid,
             )
