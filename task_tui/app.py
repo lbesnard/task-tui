@@ -24,9 +24,9 @@ from textual.screen import ModalScreen
 class FuzzySearchScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="fuzzy_container"):
-            yield Label("🔍 FUZZY SEARCH", id="fuzzy_header")
+            yield Label("🔍 TASK SEARCH", id="fuzzy_header")
             yield Label(
-                "Type to filter | [b]Tab[/b] or [b]⇅[/b] to navigate | [b]Enter[/b] to select",
+                "Type to filter | [b]Enter[/b] to select | [b]Esc[/b] to cancel",
                 id="fuzzy_help",
             )
             yield Input(
@@ -60,16 +60,12 @@ class FuzzySearchScreen(ModalScreen):
             desc = t.get("description", "")
             proj = t.get("project", "")
             if search_term in desc.lower() or search_term in proj.lower():
-                item = ListItem(Static(f"{desc} [dim]({proj})[/dim]"))
+                item = ListItem(Static(f"{t.get('id')} - {desc} [dim]({proj})[/dim]"))
                 item.uuid = t.get("uuid")
                 list_view.append(item)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.dismiss(event.item.uuid)
-
-    def on_key(self, event) -> None:
-        if event.key == "escape":
-            self.dismiss(None)
 
 
 # --- MAIN APP ---
@@ -83,84 +79,77 @@ class TaskProApp(App):
     Screen { layout: vertical; }
     #workspace { height: 75%; layout: horizontal; }
     #list_panel { width: 60%; border: tall $accent; }
+    
     #editor_panel { width: 40%; border: tall $primary; padding: 1; overflow-y: auto; }
-    #debug_panel { height: 6; border: double $warning; background: $surface; color: $warning; padding: 1; }
+    #editor_panel.view_mode { background: #002b36; border: tall #268bd2; }
+    #editor_panel.edit_mode { background: #3b1010; border: tall #dc322f; }
+    
+    #mode_indicator { text-align: center; text-style: bold; margin-bottom: 1; }
     .metadata { color: #888888; text-style: bold; margin-top: 1; }
     Input, Select, TextArea { border: tall $primary; margin-bottom: 0; }
-    TextArea { height: 5; }
-
-    #context_bar {
-        background: $accent;
-        color: white;
-        content-align: center middle;
-        text-style: bold;
-        display: none;
-        height: 1;
-        width: 100%;
-        padding: 0 1;
-    }
+    
+    #context_bar { background: $accent; color: white; content-align: center middle; text-style: bold; display: none; height: 1; width: 100%; padding: 0 1; }
     .visible { display: block !important; }
     """
 
     BINDINGS = [
         Binding("f", "fuzzy_find", "Search"),
-        Binding("space", "toggle_selection", "Select/Deselect"),
-        Binding("C", "clear_selection", "Clear Selection"),
-        Binding("t", "date_mode", "Quick Date"),  # Our trigger
-        Binding("p", "prio_mode", "Quick Priority"),
+        Binding("space", "toggle_selection", "Select"),
+        Binding("t", "date_mode", "Date"),
+        Binding("p", "prio_mode", "Prio"),
         Binding("m", "edit_mode", "Modify"),
         Binding("n", "new_task", "New"),
         Binding("s", "save_task", "Save"),
         Binding("d", "mark_done", "Done"),
         Binding("r", "refresh_tasks", "Refresh"),
-        Binding("ctrl+z", "cancel_edit", "Back to List"),
+        Binding("ctrl+z", "cancel_edit", "Back"),
         Binding("q", "quit", "Quit"),
     ]
 
     def __init__(self):
         super().__init__()
         self.active_uuid = None
-        self.selected_uuids = set()  # Track multiple tasks
-        self.original_annotations = []
+        self.selected_uuids = set()
         self.is_modifying = False
         self.sort_state = {"index": 0, "reverse": False}
         self.raw_tasks = []
-        self.date_context = None  # None, "main", or "end_of"
+        self.date_context = None
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("", id="context_bar")  # Custom bar for the menu
+        yield Static("", id="context_bar")
         with Horizontal(id="workspace"):
             yield DataTable(id="list_panel", cursor_type="row")
-            with Vertical(id="editor_panel"):
+            with Vertical(id="editor_panel", classes="view_mode"):
+                yield Static("🔒 VIEWING", id="mode_indicator")
                 yield Label("DESCRIPTION", classes="metadata")
                 yield Input(id="inp_desc")
                 yield Label("PROJECT", classes="metadata")
                 yield Input(id="inp_proj")
-                yield Label("DUE (YYYYMMDD, eod, tomorrow)", classes="metadata")
+                yield Label("DUE (YYYYMMDD or e.g. 'tomorrow')", classes="metadata")
                 yield Input(id="inp_due")
-                yield Label("TAGS (Space separated)", classes="metadata")
+                yield Label("DEPENDS ON (Ctrl+F to pick tasks)", classes="metadata")
+                yield Input(id="inp_dep")
+                yield Label("TAGS", classes="metadata")
                 yield Input(id="inp_tags")
                 yield Label("PRIORITY", classes="metadata")
                 yield Select(
-                    [("High", "H"), ("Medium", "M"), ("Low", "L"), ("None", "X")],
+                    [("High", "H"), ("Mid", "M"), ("Low", "L"), ("None", "X")],
                     id="sel_prio",
                     value="X",
                 )
-                yield Label("ANNOTATIONS (One per line)", classes="metadata")
-                yield TextArea(id="inp_ann")
-                yield Label("ACTIVE UUID", classes="metadata")
+                yield Label("UUID", classes="metadata")
                 yield Static("None", id="uuid_display")
-        yield Static("DEBUG LOG: Click headers to sort", id="debug_panel")
+        yield Static("DEBUG LOG", id="debug_panel")
         yield Footer()
 
     def on_mount(self) -> None:
         self.refresh_tasks()
 
-    # --- KEY HANDLING ---
     def on_key(self, event) -> None:
         if self.date_context:
             key = event.key.lower()
+            # Main Date Context
             if self.date_context == "main":
                 if key == "n":
                     self.apply_quick_date("today")
@@ -170,9 +159,9 @@ class TaskProApp(App):
                     self.date_context = "end_of"
                     self.update_context_bar()
                 elif key == "escape":
-                    self.exit_date_mode()
+                    self.exit_context_mode()
                 event.stop()
-                event.prevent_default()
+            # End Of Context
             elif self.date_context == "end_of":
                 if key == "w":
                     self.apply_quick_date("eow")
@@ -184,8 +173,7 @@ class TaskProApp(App):
                     self.date_context = "main"
                     self.update_context_bar()
                 event.stop()
-                event.prevent_default()
-            # --- PRIORITY LOGIC ---
+            # Priority Context
             elif self.date_context == "priority":
                 if key == "h":
                     self.apply_quick_prio("H")
@@ -198,85 +186,14 @@ class TaskProApp(App):
                 elif key == "escape":
                     self.exit_context_mode()
                 event.stop()
-            event.stop()
 
-    def action_toggle_selection(self):
-        try:
-            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
-                self.query_one(DataTable).cursor_coordinate
-            )
-            uuid = row_key.value
-            if uuid in self.selected_uuids:
-                self.selected_uuids.remove(uuid)
-            else:
-                self.selected_uuids.add(uuid)
-
-            self.update_table_view()  # Refresh to show highlights
-        except:
-            pass
-
-    def action_clear_selection(self):
-        self.selected_uuids.clear()
-        self.update_table_view()
-        self.notify("Selection cleared")
-
-    def action_date_mode(self):
-        try:
-            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
-                self.query_one(DataTable).cursor_coordinate
-            )
-            self.active_uuid = row_key.value
-            self.date_context = "main"
-            self.update_context_bar()
-        except:
-            self.notify("Select a task first!", severity="error")
-
-    def action_prio_mode(self):
-        try:
-            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
-                self.query_one(DataTable).cursor_coordinate
-            )
-            self.active_uuid = row_key.value
-            self.date_context = "priority"
-            self.update_context_bar()
-        except:
-            self.notify("Select a task first!", severity="error")
-
-    def apply_quick_prio(self, prio_level: str):
-        targets = self.get_target_uuids()
-        if not targets:
-            return
-
-        for uuid in targets:
-            subprocess.run(
-                ["task", uuid, "modify", f"priority:{prio_level}"], capture_output=True
-            )
-
-        self.notify(f"Updated {len(targets)} tasks: prio {prio_level}")
-        self.selected_uuids.clear()
-        self.exit_context_mode()
-        self.refresh_tasks()
-
-    #
-    # def apply_quick_prio(self, prio_level: str):
-    #     # Taskwarrior uses 'priority:' to clear it, or 'priority:H' to set it
-    #     subprocess.run(
-    #         ["task", self.active_uuid, "modify", f"priority:{prio_level}"],
-    #         capture_output=True,
-    #     )
-    #     self.notify(f"Priority set to {prio_level if prio_level else 'None'}")
-    #     self.exit_context_mode()
-    #     self.refresh_tasks()
-
-    def exit_context_mode(self):  # Renamed from exit_date_mode
-        self.date_context = None
-        self.query_one("#context_bar").remove_class("visible")
+        if self.is_modifying and event.key == "ctrl+f" and self.focused.id == "inp_dep":
+            self.action_fuzzy_find_dep()
 
     def update_context_bar(self):
         bar = self.query_one("#context_bar")
         bar.add_class("visible")
         if self.date_context == "main":
-            # Escaping brackets by doubling them
             bar.update(
                 "📅  SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
             )
@@ -289,45 +206,75 @@ class TaskProApp(App):
                 "⚡  SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
             )
 
-    def exit_date_mode(self):
+    # --- ACTIONS ---
+    def action_new_task(self):
+        self.set_modify_mode(True)
+        self.active_uuid = "NEW"
+        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_dep", "#inp_tags"]:
+            self.query_one(field).value = ""
+        self.query_one("#uuid_display").update("NEW TASK")
+        self.query_one("#inp_desc").focus()
+
+    def action_fuzzy_find(self):
+        def on_select(uuid):
+            if uuid:
+                self.load_task_by_uuid(uuid, focus=False)
+                table = self.query_one(DataTable)
+                for idx, row_key in enumerate(table.rows):
+                    if row_key.value == uuid:
+                        table.move_cursor(row=idx)
+                        break
+
+        self.push_screen(FuzzySearchScreen(), on_select)
+
+    def action_fuzzy_find_dep(self):
+        def on_select(task_id):
+            if task_id:
+                current = self.query_one("#inp_dep").value
+                new_val = f"{current}, {task_id}" if current else task_id
+                self.query_one("#inp_dep").value = new_val.strip(", ")
+
+        self.push_screen(FuzzySearchScreen(), on_select)
+
+    def action_toggle_selection(self):
+        if self.active_uuid:
+            if self.active_uuid in self.selected_uuids:
+                self.selected_uuids.remove(self.active_uuid)
+            else:
+                self.selected_uuids.add(self.active_uuid)
+            self.update_table_view()
+
+    def action_date_mode(self):
+        self.date_context = "main"
+        self.update_context_bar()
+
+    def action_prio_mode(self):
+        self.date_context = "priority"
+        self.update_context_bar()
+
+    def exit_context_mode(self):
         self.date_context = None
         self.query_one("#context_bar").remove_class("visible")
 
-    def get_target_uuids(self):
-        """Returns selected tasks, or the currently hovered task if none selected."""
-        if self.selected_uuids:
-            return list(self.selected_uuids)
-        if self.active_uuid and self.active_uuid != "NEW":
-            return [self.active_uuid]
-        return []
-
-    def apply_quick_date(self, date_str: str):
-        targets = self.get_target_uuids()
-        if not targets:
-            return
-
-        for uuid in targets:
-            subprocess.run(
-                ["task", uuid, "modify", f"due:{date_str}"], capture_output=True
-            )
-
-        self.notify(f"Updated {len(targets)} tasks: due {date_str}")
-        self.selected_uuids.clear()  # Optional: clear after batch action
+    def apply_quick_date(self, date_str):
+        targets = (
+            list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
+        )
+        for uid in targets:
+            subprocess.run(["task", uid, "modify", f"due:{date_str}"])
+        self.refresh_tasks()
         self.exit_context_mode()
-        self.refresh_tasks()
 
-    # def apply_quick_date(self, date_str: str):
-    #     subprocess.run(
-    #         ["task", self.active_uuid, "modify", f"due:{date_str}"], capture_output=True
-    #     )
-    #     self.notify(f"Set to {date_str}")
-    #     self.exit_date_mode()
-    #     self.refresh_tasks()
-    #
-    # --- TABLE & LOGIC ---
-    def action_refresh_tasks(self) -> None:
+    def apply_quick_prio(self, level):
+        targets = (
+            list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
+        )
+        for uid in targets:
+            subprocess.run(["task", uid, "modify", f"priority:{level}"])
         self.refresh_tasks()
+        self.exit_context_mode()
 
+    # --- DATA & TABLE ---
     def refresh_tasks(self) -> None:
         res = subprocess.run(
             ["task", "status:pending", "export", "rc.json.array=on"],
@@ -345,49 +292,51 @@ class TaskProApp(App):
         table.clear(columns=True)
         cols = [
             ("ID", "id"),
-            ("Project", "project"),
-            ("Prio", "priority"),
+            ("Proj", "project"),
+            ("P", "priority"),
             ("Due", "due"),
             ("Tags", "tags"),
+            ("Urg", "urgency"),
             ("Description", "description"),
         ]
+
         for i, (label, _) in enumerate(cols):
+            icon = ""
             if i == self.sort_state["index"]:
-                icon = " ↓" if self.sort_state["reverse"] else " ↑"
-                table.add_column(f"[b][yellow]{label}{icon}[/][/b]", key=label)
-            else:
-                table.add_column(label, key=label)
+                icon = " 🔽" if self.sort_state["reverse"] else " 🔼"
+            table.add_column(f"{label}{icon}", key=cols[i][1])
 
         sort_key = cols[self.sort_state["index"]][1]
 
-        def get_sort_val(t):
+        # FIXED NUMERIC SORTING FOR URGENCY
+        def sort_logic(t):
             val = t.get(sort_key, "")
-            return ",".join(val) if isinstance(val, list) else str(val).lower()
+            if sort_key == "urgency":
+                try:
+                    return float(val)
+                except:
+                    return 0.0
+            return str(val).lower()
 
         sorted_data = sorted(
-            self.raw_tasks, key=get_sort_val, reverse=self.sort_state["reverse"]
+            self.raw_tasks, key=sort_logic, reverse=self.sort_state["reverse"]
         )
+
         for t in sorted_data:
             uuid = t.get("uuid")
             prio = t.get("priority", "X")
-            prio_color = {"H": "red", "M": "yellow", "L": "green", "X": "white"}.get(
-                prio, "white"
-            )
-            # --- SELECTION STYLING ---
-            prefix = "▶ " if uuid in self.selected_uuids else "  "
-            row_style = "on reverse" if uuid in self.selected_uuids else ""
+            prio_color = {"H": "red", "M": "yellow", "L": "green"}.get(prio, "white")
 
+            prefix = "⭐ " if uuid in self.selected_uuids else "  "
             table.add_row(
-                f"{prefix}{t.get('id', '-')}",  # Add marker to ID column
-                # str(t.get("id", "-")),
+                f"{prefix}{t.get('id')}",
                 t.get("project", ""),
                 f"[{prio_color}]{prio}[/]",
                 (t.get("due", "") or "")[:8],
                 ",".join(t.get("tags", [])),
+                f"{t.get('urgency', 0):.1f}",
                 t.get("description", ""),
-                # key=t.get("uuid"),
                 key=uuid,
-                label=row_style,  # Textual can use label/style hints in some versions
             )
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
@@ -399,134 +348,74 @@ class TaskProApp(App):
         self.update_table_view()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        if not self.is_modifying and event.row_key and event.row_key.value:
+        if not self.is_modifying and event.row_key:
             self.load_task_by_uuid(event.row_key.value, focus=False)
 
     def load_task_by_uuid(self, uuid: str, focus: bool = True):
-        res = subprocess.run(
-            ["task", uuid, "export", "rc.json.array=on"], capture_output=True, text=True
-        )
-        try:
-            task = json.loads(res.stdout)[0]
-        except:
+        task = next((t for t in self.raw_tasks if t["uuid"] == uuid), None)
+        if not task:
             return
         self.active_uuid = uuid
         self.query_one("#uuid_display").update(uuid)
         self.query_one("#inp_desc").value = task.get("description", "")
         self.query_one("#inp_proj").value = task.get("project", "")
-        self.query_one("#inp_due").value = (task.get("due", "") or "").replace("Z", "")[
-            :13
-        ]
-        self.query_one("#inp_tags").value = " ".join(task.get("tags", []))
+        self.query_one("#inp_due").value = (task.get("due", "") or "")[:8]
+        self.query_one("#inp_tags").value = ",".join(task.get("tags", []))
+        self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends", [])))
         self.query_one("#sel_prio").value = task.get("priority", "X")
-        anns = [a["description"] for a in task.get("annotations", [])]
-        self.original_annotations = anns.copy()
-        self.query_one("#inp_ann").text = "\n".join(anns)
+
         if focus:
-            self.is_modifying = True
+            self.set_modify_mode(True)
             self.query_one("#inp_desc").focus()
-            self.query_one("#debug_panel").update(
-                f"EDITING: {task.get('description')[:30]}"
-            )
         else:
-            self.query_one("#debug_panel").update(
-                f"VIEWING: {task.get('description')[:30]}"
-            )
+            self.set_modify_mode(False)
+
+    def set_modify_mode(self, active: bool):
+        self.is_modifying = active
+        panel = self.query_one("#editor_panel")
+        indicator = self.query_one("#mode_indicator")
+        if active:
+            panel.remove_class("view_mode")
+            panel.add_class("edit_mode")
+            indicator.update("✏️ MODIFYING")
+        else:
+            panel.remove_class("edit_mode")
+            panel.add_class("view_mode")
+            indicator.update("🔒 VIEWING")
 
     def action_edit_mode(self):
-        try:
-            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
-                self.query_one(DataTable).cursor_coordinate
-            )
-            self.load_task_by_uuid(row_key.value, focus=True)
-        except:
-            pass
+        if self.active_uuid:
+            self.load_task_by_uuid(self.active_uuid, focus=True)
 
     def action_save_task(self):
-        desc = self.query_one("#inp_desc").value
-        if not desc or not self.active_uuid:
+        if not self.active_uuid:
             return
-        is_new = self.active_uuid == "NEW"
-        cmd = [
-            "task",
-            "add" if is_new else self.active_uuid,
-            "modify" if not is_new else "",
-            desc,
-        ]
-        if is_new:
-            cmd.remove("")
+        dep_val = self.query_one("#inp_dep").value.replace(" ", "")
+
+        # Handle "NEW" vs existing UUID
+        target = "add" if self.active_uuid == "NEW" else self.active_uuid
+        cmd = ["task", target]
+        if self.active_uuid != "NEW":
+            cmd.append("modify")
+
         cmd.extend(
             [
+                f"description:{self.query_one('#inp_desc').value}",
                 f"project:{self.query_one('#inp_proj').value}",
                 f"due:{self.query_one('#inp_due').value}",
+                f"tags:{self.query_one('#inp_tags').value}",
+                f"depends:{dep_val}",
                 f"priority:{self.query_one('#sel_prio').value if self.query_one('#sel_prio').value != 'X' else ''}",
-                f"tags.set:{self.query_one('#inp_tags').value.replace(' ', ',')}"
-                if self.query_one("#inp_tags").value
-                else "tags.set:",
             ]
         )
-        save_res = subprocess.run(cmd, capture_output=True, text=True)
-        target_id = self.active_uuid
-        if is_new:
-            match = re.search(r"Created task (\d+)", save_res.stdout)
-            target_id = match.group(1) if match else "+LATEST"
-        current_anns = [
-            line.strip()
-            for line in self.query_one("#inp_ann").text.split("\n")
-            if line.strip()
-        ]
-        if not is_new:
-            for ann in self.original_annotations:
-                subprocess.run(
-                    ["task", target_id, "denotate", ann], capture_output=True
-                )
-        for ann in current_anns:
-            subprocess.run(["task", target_id, "annotate", ann], capture_output=True)
-        self.is_modifying = False
+        subprocess.run(cmd)
+        self.set_modify_mode(False)
         self.refresh_tasks()
-        self.action_cancel_edit()
-        self.notify("Saved!")
+        self.query_one(DataTable).focus()
 
     def action_cancel_edit(self):
-        self.is_modifying = False
+        self.set_modify_mode(False)
         self.query_one(DataTable).focus()
-        self.query_one("#debug_panel").update("NAVIGATING: Click headers to sort")
-
-    def action_new_task(self):
-        self.is_modifying = True
-        self.active_uuid = "NEW"
-        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_tags"]:
-            self.query_one(field).value = ""
-        self.query_one("#inp_ann").text = ""
-        self.query_one("#uuid_display").update("NEW TASK")
-        self.query_one("#inp_desc").focus()
-
-    def action_fuzzy_find(self) -> None:
-        def on_select(uuid):
-            if uuid:
-                self.load_task_by_uuid(uuid, focus=False)
-
-        self.push_screen(FuzzySearchScreen(), on_select)
-
-    def action_mark_done(self):
-        try:
-            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
-                self.query_one(DataTable).cursor_coordinate
-            )
-            subprocess.run(["task", row_key.value, "done"])
-            self.refresh_tasks()
-            self.notify("Task Done!")
-        except:
-            pass
-
-    def on_unmount(self) -> None:
-        os.system("clear")
-        print("Finalizing... Syncing with Taskwarrior server.")
-        try:
-            subprocess.run(["task", "sync"], check=True)
-            print("Done!")
-        except:
-            print("Sync skipped.")
 
 
 def run():
