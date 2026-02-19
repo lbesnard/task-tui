@@ -1,5 +1,7 @@
 import json
 import subprocess
+import re
+import os
 from textual.app import App, ComposeResult
 from textual.widgets import (
     Header,
@@ -16,6 +18,48 @@ from textual.widgets import (
 from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
 from textual.screen import ModalScreen
+
+
+# --- DEPENDENCY LIST SCREEN ---
+class DependencyListScreen(ModalScreen):
+    def __init__(self, dependencies, all_tasks):
+        super().__init__()
+        self.dependencies = dependencies
+        self.all_tasks = all_tasks
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="fuzzy_container"):
+            yield Label("🔗 DEPENDENCY LIST", id="fuzzy_header")
+            yield Label(
+                "[b]Enter[/b] to jump to task | [b]Esc[/b] to close", id="fuzzy_help"
+            )
+            yield ListView(id="dep_list")
+
+    def on_mount(self) -> None:
+        list_view = self.query_one("#dep_list")
+        dep_set = {str(d) for d in self.dependencies}
+
+        found = False
+        for t in self.all_tasks:
+            if str(t.get("id")) in dep_set or t.get("uuid") in dep_set:
+                item = ListItem(
+                    Static(
+                        f"{t.get('id')} - {t.get('description')} [dim]({t.get('project', '')})[/dim]"
+                    )
+                )
+                item.uuid = t.get("uuid")
+                list_view.append(item)
+                found = True
+
+        if not found:
+            list_view.append(ListItem(Static("No active dependencies found.")))
+        list_view.focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if hasattr(event.item, "uuid"):
+            self.dismiss(event.item.uuid)
+        else:
+            self.dismiss(None)
 
 
 # --- FUZZY SEARCH MODAL ---
@@ -72,7 +116,7 @@ class TaskProApp(App):
     #fuzzy_container { background: $surface; border: thick $primary; width: 70%; height: 70%; align: center middle; padding: 1; }
     #fuzzy_header { text-align: center; text-style: bold; color: $accent; }
     #fuzzy_help { text-align: center; color: $text-muted; margin-bottom: 1; }
-    #fuzzy_list { height: 1fr; margin-top: 1; border: solid $accent; }
+    #fuzzy_list, #dep_list { height: 1fr; margin-top: 1; border: solid $accent; }
     
     Screen { layout: vertical; }
     #workspace { height: 75%; layout: horizontal; }
@@ -92,12 +136,13 @@ class TaskProApp(App):
 
     BINDINGS = [
         Binding("f", "fuzzy_find", "Search"),
+        Binding("v", "view_dependencies", "Deps"),
         Binding("space", "toggle_selection", "Select"),
         Binding("t", "date_mode", "Date"),
         Binding("p", "prio_mode", "Prio"),
         Binding("m", "edit_mode", "Modify"),
         Binding("n", "new_task", "New"),
-        Binding("shift+s", "save_task", "Save"),  # Changed to ctrl+s to free up 's'
+        Binding("shift+s", "save_task", "Save"),
         Binding("s", "toggle_start", "Start/Stop"),
         Binding("d", "mark_done", "Done"),
         Binding("r", "refresh_tasks", "Refresh"),
@@ -203,6 +248,24 @@ class TaskProApp(App):
             )
 
     # --- ACTIONS ---
+    def action_view_dependencies(self):
+        if not self.active_uuid:
+            return
+        task = next((t for t in self.raw_tasks if t["uuid"] == self.active_uuid), None)
+        if task and "depends" in task:
+
+            def on_jump_to(uuid):
+                if uuid:
+                    table = self.query_one(DataTable)
+                    for idx, row_key in enumerate(table.rows):
+                        if row_key.value == uuid:
+                            table.move_cursor(row=idx)
+                            break
+
+            self.push_screen(
+                DependencyListScreen(task["depends"], self.raw_tasks), on_jump_to
+            )
+
     def action_new_task(self):
         self.set_modify_mode(True)
         self.active_uuid = "NEW"
@@ -242,7 +305,9 @@ class TaskProApp(App):
         def on_select(task_id):
             if task_id:
                 current = self.query_one("#inp_dep").value
-                new_val = f"{current}, {task_id}" if current else task_id
+                match = re.search(r"^\d+", task_id)
+                clean_id = match.group(0) if match else task_id
+                new_val = f"{current}, {clean_id}" if current else clean_id
                 self.query_one("#inp_dep").value = new_val.strip(", ")
 
         self.push_screen(FuzzySearchScreen(), on_select)
@@ -288,7 +353,6 @@ class TaskProApp(App):
     # --- DATA & TABLE ---
     def refresh_tasks(self) -> None:
         table = self.query_one(DataTable)
-        # Remember current position
         saved_row_key = None
         if table.row_count > 0:
             try:
@@ -304,8 +368,6 @@ class TaskProApp(App):
         try:
             self.raw_tasks = json.loads(res.stdout)
             self.update_table_view()
-
-            # Restore position
             if saved_row_key:
                 for idx, row_key in enumerate(table.rows):
                     if row_key == saved_row_key:
@@ -328,9 +390,13 @@ class TaskProApp(App):
         ]
 
         for i, (label, _) in enumerate(cols):
-            icon = ""
-            if i == self.sort_state["index"]:
-                icon = " 🔽" if self.sort_state["reverse"] else " 🔼"
+            icon = (
+                " 🔽"
+                if i == self.sort_state["index"] and self.sort_state["reverse"]
+                else " 🔼"
+                if i == self.sort_state["index"]
+                else ""
+            )
             table.add_column(f"{label}{icon}", key=cols[i][1])
 
         sort_key = cols[self.sort_state["index"]][1]
@@ -352,10 +418,11 @@ class TaskProApp(App):
             uuid = t.get("uuid")
             prio = t.get("priority", "X")
             prio_color = {"H": "red", "M": "yellow", "L": "green"}.get(prio, "white")
-
-            # Visual indicator for "Started" tasks
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.selected_uuids else is_active
+
+            # ADDED: Dependency Icon Logic
+            dep_icon = "🔗 " if "depends" in t and t["depends"] else ""
 
             table.add_row(
                 f"{prefix}{t.get('id')}",
@@ -364,7 +431,7 @@ class TaskProApp(App):
                 (t.get("due", "") or "")[:8],
                 ",".join(t.get("tags", [])),
                 f"{t.get('urgency', 0):.1f}",
-                t.get("description", ""),
+                f"{dep_icon}{t.get('description', '')}",  # Icon prepended to description
                 key=uuid,
             )
 
