@@ -177,7 +177,7 @@ class TaskProApp(App):
         self.active_uuid = None
         self.selected_uuids = set()
         self.is_modifying = False
-        self.sort_state = {"index": 2, "reverse": False}
+        self.sort_state = {"index": 5, "reverse": True}
         self.raw_tasks = []
         self.date_context = None
 
@@ -276,7 +276,7 @@ class TaskProApp(App):
             )
 
     # --- ACTIONS ---
-     def action_cursor_down(self):
+    def action_cursor_down(self):
         self.query_one(DataTable).action_cursor_down()
 
     def action_cursor_up(self):
