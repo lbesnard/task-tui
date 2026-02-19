@@ -2,7 +2,7 @@
 
 A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https://taskwarrior.org/). Built with the Python [Textual](https://textual.textualize.io/) framework, it provides a seamless way to manage your tasks with live updates and fuzzy searching.
 
-![Example of task-tui](../tasktui.png)
+![Example of task-tui](asset/tasktui.png)
 
 ---
 
