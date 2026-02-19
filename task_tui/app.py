@@ -104,6 +104,8 @@ class TaskProApp(App):
 
     BINDINGS = [
         Binding("f", "fuzzy_find", "Search"),
+        Binding("space", "toggle_selection", "Select/Deselect"),
+        Binding("C", "clear_selection", "Clear Selection"),
         Binding("t", "date_mode", "Quick Date"),  # Our trigger
         Binding("p", "prio_mode", "Quick Priority"),
         Binding("m", "edit_mode", "Modify"),
@@ -118,6 +120,7 @@ class TaskProApp(App):
     def __init__(self):
         super().__init__()
         self.active_uuid = None
+        self.selected_uuids = set()  # Track multiple tasks
         self.original_annotations = []
         self.is_modifying = False
         self.sort_state = {"index": 0, "reverse": False}
@@ -197,6 +200,26 @@ class TaskProApp(App):
                 event.stop()
             event.stop()
 
+    def action_toggle_selection(self):
+        try:
+            row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
+                self.query_one(DataTable).cursor_coordinate
+            )
+            uuid = row_key.value
+            if uuid in self.selected_uuids:
+                self.selected_uuids.remove(uuid)
+            else:
+                self.selected_uuids.add(uuid)
+
+            self.update_table_view()  # Refresh to show highlights
+        except:
+            pass
+
+    def action_clear_selection(self):
+        self.selected_uuids.clear()
+        self.update_table_view()
+        self.notify("Selection cleared")
+
     def action_date_mode(self):
         try:
             row_key, _ = self.query_one(DataTable).coordinate_to_cell_key(
@@ -220,14 +243,30 @@ class TaskProApp(App):
             self.notify("Select a task first!", severity="error")
 
     def apply_quick_prio(self, prio_level: str):
-        # Taskwarrior uses 'priority:' to clear it, or 'priority:H' to set it
-        subprocess.run(
-            ["task", self.active_uuid, "modify", f"priority:{prio_level}"],
-            capture_output=True,
-        )
-        self.notify(f"Priority set to {prio_level if prio_level else 'None'}")
+        targets = self.get_target_uuids()
+        if not targets:
+            return
+
+        for uuid in targets:
+            subprocess.run(
+                ["task", uuid, "modify", f"priority:{prio_level}"], capture_output=True
+            )
+
+        self.notify(f"Updated {len(targets)} tasks: prio {prio_level}")
+        self.selected_uuids.clear()
         self.exit_context_mode()
         self.refresh_tasks()
+
+    #
+    # def apply_quick_prio(self, prio_level: str):
+    #     # Taskwarrior uses 'priority:' to clear it, or 'priority:H' to set it
+    #     subprocess.run(
+    #         ["task", self.active_uuid, "modify", f"priority:{prio_level}"],
+    #         capture_output=True,
+    #     )
+    #     self.notify(f"Priority set to {prio_level if prio_level else 'None'}")
+    #     self.exit_context_mode()
+    #     self.refresh_tasks()
 
     def exit_context_mode(self):  # Renamed from exit_date_mode
         self.date_context = None
@@ -254,14 +293,37 @@ class TaskProApp(App):
         self.date_context = None
         self.query_one("#context_bar").remove_class("visible")
 
+    def get_target_uuids(self):
+        """Returns selected tasks, or the currently hovered task if none selected."""
+        if self.selected_uuids:
+            return list(self.selected_uuids)
+        if self.active_uuid and self.active_uuid != "NEW":
+            return [self.active_uuid]
+        return []
+
     def apply_quick_date(self, date_str: str):
-        subprocess.run(
-            ["task", self.active_uuid, "modify", f"due:{date_str}"], capture_output=True
-        )
-        self.notify(f"Set to {date_str}")
-        self.exit_date_mode()
+        targets = self.get_target_uuids()
+        if not targets:
+            return
+
+        for uuid in targets:
+            subprocess.run(
+                ["task", uuid, "modify", f"due:{date_str}"], capture_output=True
+            )
+
+        self.notify(f"Updated {len(targets)} tasks: due {date_str}")
+        self.selected_uuids.clear()  # Optional: clear after batch action
+        self.exit_context_mode()
         self.refresh_tasks()
 
+    # def apply_quick_date(self, date_str: str):
+    #     subprocess.run(
+    #         ["task", self.active_uuid, "modify", f"due:{date_str}"], capture_output=True
+    #     )
+    #     self.notify(f"Set to {date_str}")
+    #     self.exit_date_mode()
+    #     self.refresh_tasks()
+    #
     # --- TABLE & LOGIC ---
     def action_refresh_tasks(self) -> None:
         self.refresh_tasks()
@@ -306,18 +368,26 @@ class TaskProApp(App):
             self.raw_tasks, key=get_sort_val, reverse=self.sort_state["reverse"]
         )
         for t in sorted_data:
+            uuid = t.get("uuid")
             prio = t.get("priority", "X")
             prio_color = {"H": "red", "M": "yellow", "L": "green", "X": "white"}.get(
                 prio, "white"
             )
+            # --- SELECTION STYLING ---
+            prefix = "▶ " if uuid in self.selected_uuids else "  "
+            row_style = "on reverse" if uuid in self.selected_uuids else ""
+
             table.add_row(
-                str(t.get("id", "-")),
+                f"{prefix}{t.get('id', '-')}",  # Add marker to ID column
+                # str(t.get("id", "-")),
                 t.get("project", ""),
                 f"[{prio_color}]{prio}[/]",
                 (t.get("due", "") or "")[:8],
                 ",".join(t.get("tags", [])),
                 t.get("description", ""),
-                key=t.get("uuid"),
+                # key=t.get("uuid"),
+                key=uuid,
+                label=row_style,  # Textual can use label/style hints in some versions
             )
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
