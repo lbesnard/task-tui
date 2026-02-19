@@ -83,6 +83,19 @@ class FuzzySearchScreen(ModalScreen):
         self.update_list("")
         self.query_one("#fuzzy_input").focus()
 
+    def on_key(self, event) -> None:
+        """Handle Vim-like navigation in the search results."""
+        list_view = self.query_one("#fuzzy_list")
+
+        if event.key == "j":
+            list_view.action_cursor_down()
+            event.stop()
+        elif event.key == "k":
+            list_view.action_cursor_up()
+            event.stop()
+        elif event.key == "escape":
+            self.dismiss(None)
+
     def load_tasks(self):
         res = subprocess.run(
             ["task", "status:pending", "export", "rc.json.array=on"],
@@ -138,12 +151,12 @@ class TaskProApp(App):
 
     BINDINGS = [
         Binding("/", "fuzzy_find", "Search"),
-        Binding("v", "view_dependencies", "Deps"),
+        Binding("v", "view_dependencies", "ViewDeps"),
         Binding("u", "undo", "Undo"),
         Binding("space", "toggle_selection", "Select"),
-        Binding("t", "date_mode", "Date"),
-        Binding("p", "prio_mode", "Prio"),
-        Binding("m", "edit_mode", "Modify"),
+        Binding("t", "date_mode", "SetDate"),
+        Binding("p", "prio_mode", "SetPrio"),
+        Binding("i", "edit_mode", "Modify/Edit"),
         Binding("n", "new_task", "New"),
         Binding("x", "save_task", "Save"),
         Binding("s", "toggle_start", "Start/Stop"),
@@ -151,6 +164,12 @@ class TaskProApp(App):
         Binding("r", "refresh_tasks", "Refresh"),
         Binding("ctrl+z", "cancel_edit", "Back"),
         Binding("q", "quit", "Quit"),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("h", "cursor_left", "Left", show=False),
+        Binding("l", "cursor_right", "Right", show=False),
+        Binding("g", "scroll_top", "Top", show=False),
+        Binding("G", "scroll_bottom", "Bottom", show=False),
     ]
 
     def __init__(self):
@@ -158,7 +177,7 @@ class TaskProApp(App):
         self.active_uuid = None
         self.selected_uuids = set()
         self.is_modifying = False
-        self.sort_state = {"index": 0, "reverse": False}
+        self.sort_state = {"index": 2, "reverse": False}
         self.raw_tasks = []
         self.date_context = None
 
@@ -257,6 +276,26 @@ class TaskProApp(App):
             )
 
     # --- ACTIONS ---
+     def action_cursor_down(self):
+        self.query_one(DataTable).action_cursor_down()
+
+    def action_cursor_up(self):
+        self.query_one(DataTable).action_cursor_up()
+
+    def action_cursor_left(self):
+        self.query_one(DataTable).action_cursor_left()
+
+    def action_cursor_right(self):
+        self.query_one(DataTable).action_cursor_right()
+
+    def action_scroll_top(self):
+        self.query_one(DataTable).scroll_home()
+        self.query_one(DataTable).move_cursor(row=0)
+
+    def action_scroll_bottom(self):
+        self.query_one(DataTable).scroll_end()
+        self.query_one(DataTable).move_cursor(row=len(self.raw_tasks) - 1)
+
     def action_undo(self):
         subprocess.run(["task", "rc.confirmation=off", "undo"])
         self.refresh_tasks()
@@ -320,7 +359,7 @@ class TaskProApp(App):
         def on_select(selected_uuid):
             if selected_uuid:
                 current = self.query_one("#inp_dep").value
-                # We now always use the UUID to ensure the dependency is permanent
+                # Append the new UUID to the list
                 new_val = f"{current}, {selected_uuid}" if current else selected_uuid
                 self.query_one("#inp_dep").value = new_val.strip(", ")
 
@@ -423,11 +462,23 @@ class TaskProApp(App):
                     return float(val)
                 except:
                     return 0.0
+            # Custom Priority Weighting
+            if sort_key == "priority":
+                # Assign numeric weights so H (3) > M (2) > L (1) > None (0)
+                weights = {"H": 3, "M": 2, "L": 1, "X": 0, "": 0}
+                return weights.get(val, 0)
+
             return str(val).lower()
 
+        # Sort with reverse=True so higher weights (H) appear at the top
         sorted_data = sorted(
-            self.raw_tasks, key=sort_logic, reverse=self.sort_state["reverse"]
+            self.raw_tasks,
+            key=sort_logic,
+            reverse=True if sort_key == "priority" else self.sort_state["reverse"],
         )
+        # sorted_data = sorted(
+        #     self.raw_tasks, key=sort_logic, reverse=self.sort_state["reverse"]
+        # )
 
         for t in sorted_data:
             uuid = t.get("uuid")
