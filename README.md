@@ -56,6 +56,9 @@ pip install -e .
 | `s`      | Save changes (Global)                  |
 | `d`      | Mark selected task as Done             |
 | `r`      | Refresh task list                      |
+| `s`      | Refresh task list                      |
+| `space`  | multiple select                        |
+| `C`      | Cancel multiple selection              |
 | `Ctrl+Z` | Cancel edit / Back to list             |
 | `q`      | Quit and Sync                          |
 
