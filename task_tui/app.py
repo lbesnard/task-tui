@@ -314,6 +314,20 @@ class TaskProApp(App):
     def on_mount(self) -> None:
         self.refresh_tasks()
 
+    def on_unmount(self) -> None:
+        # Clear the TUI screen so the output below is visible
+        os.system("clear")
+
+        print("Finalizing... Syncing with Taskwarrior server.")
+        try:
+            # We add a timeout of 10 seconds just in case the server is unreachable
+            subprocess.run(["task", "sync"], check=True, timeout=10)
+            print("✅ Sync Done!")
+        except subprocess.TimeoutExpired:
+            print("⚠️ Sync timed out. Your changes are saved locally.")
+        except Exception:
+            print("❌ Sync skipped or failed.")
+
     def on_key(self, event) -> None:
         # # 1. Handle Context Modes (Date/Priority) first to "trap" keys
         # if self.date_context:
