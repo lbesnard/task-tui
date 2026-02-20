@@ -20,6 +20,73 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 
 
+# --- QUICK MENU MODAL ---
+class QuickMenuScreen(ModalScreen):
+    def __init__(self, menu_type, app_ref):
+        super().__init__()
+        self.menu_type = menu_type
+        self.app_ref = app_ref
+
+    def compose(self) -> ComposeResult:
+        # We reuse your CSS context_bar look
+        text = ""
+        if self.menu_type == "main":
+            text = "📅 SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
+        elif self.menu_type == "end_of":
+            text = "📅 END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
+        elif self.menu_type == "priority":
+            text = "⚡ SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
+
+        yield Static(text, id="context_bar", classes="visible")
+
+    def on_key(self, event) -> None:
+        key = event.key.lower()
+
+        if key == "escape":
+            if self.menu_type == "end_of":
+                # Go back to main date menu
+                self.dismiss("back_to_main")
+            else:
+                self.dismiss(None)
+
+        # Main Date Logic
+        elif self.menu_type == "main":
+            if key == "n":
+                self.app_ref.apply_quick_date("today")
+                self.dismiss(None)
+            elif key == "t":
+                self.app_ref.apply_quick_date("tomorrow")
+                self.dismiss(None)
+            elif key == "e":
+                self.dismiss("go_to_end_of")
+
+        # End Of Logic
+        elif self.menu_type == "end_of":
+            if key == "w":
+                self.app_ref.apply_quick_date("eow")
+            elif key == "m":
+                self.app_ref.apply_quick_date("eom")
+            elif key == "y":
+                self.app_ref.apply_quick_date("eoy")
+            if key in ["w", "m", "y"]:
+                self.dismiss(None)
+
+        # Priority Logic
+        elif self.menu_type == "priority":
+            if key == "h":
+                self.app_ref.apply_quick_prio("H")
+            elif key == "m":
+                self.app_ref.apply_quick_prio("M")
+            elif key == "l":
+                self.app_ref.apply_quick_prio("L")
+            elif key == "x":
+                self.app_ref.apply_quick_prio("")
+            if key in ["h", "m", "l", "x"]:
+                self.dismiss(None)
+
+        event.stop()  # CRITICAL: This kills the key so it never hits the main app
+
+
 # --- DEPENDENCY LIST SCREEN ---
 class DependencyListScreen(ModalScreen):
     def __init__(self, dependencies, all_tasks):
@@ -248,73 +315,141 @@ class TaskProApp(App):
         self.refresh_tasks()
 
     def on_key(self, event) -> None:
-        # Force Save even when inside an Input field
-        if event.key == "S":  # Shift+S
-            self.action_save_task()
-            event.stop()
-            return
-        # Detect if a user is trying to type (any single character) while locked
+        # # 1. Handle Context Modes (Date/Priority) first to "trap" keys
+        # if self.date_context:
+        #     key = event.key.lower()
+        #
+        #     # Special case: Always allow Escape to get out
+        #     if key == "escape":
+        #         if self.date_context == "end_of":
+        #             self.date_context = "main"
+        #             self.update_context_bar()
+        #         else:
+        #             self.exit_context_mode()
+        #         event.stop()
+        #         return
+        #
+        #     # Main Date Menu
+        #     if self.date_context == "main":
+        #         if key == "n":
+        #             self.apply_quick_date("today")
+        #         elif key == "t":
+        #             self.apply_quick_date("tomorrow")
+        #         elif key == "e":
+        #             self.date_context = "end_of"
+        #             self.update_context_bar()
+        #         event.stop()  # Prevents 'n' from creating a New Task
+        #         return
+        #
+        #     # End Of Menu
+        #     elif self.date_context == "end_of":
+        #         if key == "w":
+        #             self.apply_quick_date("eow")
+        #         elif key == "m":
+        #             self.apply_quick_date("eom")
+        #         elif key == "y":
+        #             self.apply_quick_date("eoy")
+        #         event.stop()
+        #         return
+        #
+        #     # Priority Menu
+        #     elif self.date_context == "priority":
+        #         if key == "h":
+        #             self.apply_quick_prio("H")
+        #         elif key == "m":
+        #             self.apply_quick_prio("M")
+        #         elif key == "l":
+        #             self.apply_quick_prio("L")
+        #         elif key == "x":
+        #             self.apply_quick_prio("")
+        #         event.stop()  # Prevents 'x' from Saving or Marking Done
+        #         return
+        #
+        # 2. Existing Global Guards (Locked Interface)
         if not self.is_modifying and len(event.character or "") == 1:
-            # Check if the key is actually bound to a command first
-            # We allow bound keys like 'j', 'k', '/', etc.
             is_bound = any(binding.key == event.key for binding in self.BINDINGS)
-
             if not is_bound:
                 self.notify("Press [b]i[/b] to enter Edit Mode", severity="warning")
-                self.query_one("#debug_panel").update(
-                    "⚠️ Interface locked: Enter Edit Mode (i) to modify fields."
-                )
                 event.stop()
                 return
 
-        if self.date_context:
-            key = event.key.lower()
-            if self.date_context == "main":
-                if key == "n":
-                    self.apply_quick_date("today")
-                elif key == "t":
-                    self.apply_quick_date("tomorrow")
-                elif key == "e":
-                    self.date_context = "end_of"
-                    self.update_context_bar()
-                elif key == "escape":
-                    self.exit_context_mode()
-                event.stop()
-            elif self.date_context == "end_of":
-                if key == "w":
-                    self.apply_quick_date("eow")
-                elif key == "m":
-                    self.apply_quick_date("eom")
-                elif key == "y":
-                    self.apply_quick_date("eoy")
-                elif key == "escape":
-                    self.date_context = "main"
-                    self.update_context_bar()
-                event.stop()
-            elif self.date_context == "priority":
-                if key == "h":
-                    self.apply_quick_prio("H")
-                elif key == "m":
-                    self.apply_quick_prio("M")
-                elif key == "l":
-                    self.apply_quick_prio("L")
-                elif key == "x":
-                    self.apply_quick_prio("")
-                elif key == "escape":
-                    self.exit_context_mode()
-                event.stop()
+        # 3. Specific Bound Actions (Shift+S, etc.)
+        if event.key == "S":
+            self.action_save_task()
+            event.stop()
+            return
 
         if self.is_modifying and event.key == "ctrl+f" and self.focused.id == "inp_dep":
             self.action_fuzzy_find_dep()
-        #
-        # if event.key == "tab" and self.is_modifying and self.is_dirty:
-        #     self.notify(
-        #         "You have unsaved changes! Press x to save or Ctrl+Z to discard.",
-        #         severity="error",
-        #     )
-        #     event.stop()  # Prevents shifting focus back to the table
-        #     return
 
+    # def on_key(self, event) -> None:
+    #     # Force Save even when inside an Input field
+    #     if event.key == "S":  # Shift+S
+    #         self.action_save_task()
+    #         event.stop()
+    #         return
+    #     # Detect if a user is trying to type (any single character) while locked
+    #     if not self.is_modifying and len(event.character or "") == 1:
+    #         # Check if the key is actually bound to a command first
+    #         # We allow bound keys like 'j', 'k', '/', etc.
+    #         is_bound = any(binding.key == event.key for binding in self.BINDINGS)
+    #
+    #         if not is_bound:
+    #             self.notify("Press [b]i[/b] to enter Edit Mode", severity="warning")
+    #             self.query_one("#debug_panel").update(
+    #                 "⚠️ Interface locked: Enter Edit Mode (i) to modify fields."
+    #             )
+    #             event.stop()
+    #             return
+    #
+    #     if self.date_context:
+    #         key = event.key.lower()
+    #         if self.date_context == "main":
+    #             if key == "n":
+    #                 self.apply_quick_date("today")
+    #             elif key == "t":
+    #                 self.apply_quick_date("tomorrow")
+    #             elif key == "e":
+    #                 self.date_context = "end_of"
+    #                 self.update_context_bar()
+    #             elif key == "escape":
+    #                 self.exit_context_mode()
+    #             event.stop()
+    #         elif self.date_context == "end_of":
+    #             if key == "w":
+    #                 self.apply_quick_date("eow")
+    #             elif key == "m":
+    #                 self.apply_quick_date("eom")
+    #             elif key == "y":
+    #                 self.apply_quick_date("eoy")
+    #             elif key == "escape":
+    #                 self.date_context = "main"
+    #                 self.update_context_bar()
+    #             event.stop()
+    #         elif self.date_context == "priority":
+    #             if key == "h":
+    #                 self.apply_quick_prio("H")
+    #             elif key == "m":
+    #                 self.apply_quick_prio("M")
+    #             elif key == "l":
+    #                 self.apply_quick_prio("L")
+    #             elif key == "x":
+    #                 self.apply_quick_prio("")
+    #             elif key == "escape":
+    #                 self.exit_context_mode()
+    #             event.stop()
+    #
+    #     if self.is_modifying and event.key == "ctrl+f" and self.focused.id == "inp_dep":
+    #         self.action_fuzzy_find_dep()
+    #     #
+    #     # if event.key == "tab" and self.is_modifying and self.is_dirty:
+    #     #     self.notify(
+    #     #         "You have unsaved changes! Press x to save or Ctrl+Z to discard.",
+    #     #         severity="error",
+    #     #     )
+    #     #     event.stop()  # Prevents shifting focus back to the table
+    #     #     return
+    #
     def action_quit(self) -> None:
         if self.is_dirty:
             self.notify(
@@ -361,22 +496,22 @@ class TaskProApp(App):
         if self.is_modifying:
             self.is_dirty = True
 
-    def update_context_bar(self):
-        bar = self.query_one("#context_bar")
-        bar.add_class("visible")
-        if self.date_context == "main":
-            bar.update(
-                "📅  SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
-            )
-        elif self.date_context == "end_of":
-            bar.update(
-                "📅  END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
-            )
-        elif self.date_context == "priority":
-            bar.update(
-                "⚡  SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
-            )
-
+    # def update_context_bar(self):
+    #     bar = self.query_one("#context_bar")
+    #     bar.add_class("visible")
+    #     if self.date_context == "main":
+    #         bar.update(
+    #             "📅  SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
+    #         )
+    #     elif self.date_context == "end_of":
+    #         bar.update(
+    #             "📅  END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
+    #         )
+    #     elif self.date_context == "priority":
+    #         bar.update(
+    #             "⚡  SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
+    #         )
+    #
     # --- ACTIONS ---
     def action_cursor_down(self):
         self.query_one(DataTable).action_cursor_down()
@@ -439,11 +574,33 @@ class TaskProApp(App):
             self.refresh_tasks()
 
     def action_mark_done(self):
-        if not self.active_uuid or self.active_uuid == "NEW":
+        # 1. Determine which tasks to complete
+        targets = (
+            list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
+        )
+
+        # 2. Guard against empty selection or "NEW" task
+        targets = [uid for uid in targets if uid and uid != "NEW"]
+
+        if not targets:
             return
-        subprocess.run(["task", self.active_uuid, "done"])
+
+        # 3. Execute 'done' for each task
+        for uid in targets:
+            subprocess.run(["task", uid, "done"])
+
+        # 4. Cleanup
+        self.selected_uuids.clear()  # Clear selection after action
         self.refresh_tasks()
-        self.notify("Task completed!")
+        self.notify(f"Completed {len(targets)} task(s)!")
+
+    #
+    # def action_mark_done(self):
+    #     if not self.active_uuid or self.active_uuid == "NEW":
+    #         return
+    #     subprocess.run(["task", self.active_uuid, "done"])
+    #     self.refresh_tasks()
+    #     self.notify("Task completed!")
 
     def action_fuzzy_find(self):
         def on_select(uuid):
@@ -476,17 +633,30 @@ class TaskProApp(App):
             self.update_table_view()
 
     def action_date_mode(self):
-        self.date_context = "main"
-        self.update_context_bar()
+        def check_result(result):
+            if result == "go_to_end_of":
+                self.push_screen(QuickMenuScreen("end_of", self), check_result)
+            elif result == "back_to_main":
+                self.push_screen(QuickMenuScreen("main", self), check_result)
+
+        self.push_screen(QuickMenuScreen("main", self), check_result)
 
     def action_prio_mode(self):
-        self.date_context = "priority"
-        self.update_context_bar()
+        self.push_screen(QuickMenuScreen("priority", self))
 
-    def exit_context_mode(self):
-        self.date_context = None
-        self.query_one("#context_bar").remove_class("visible")
-
+    # def action_date_mode(self):
+    #     self.date_context = "main"
+    #     self.update_context_bar()
+    #
+    #
+    # def action_prio_mode(self):
+    #     self.date_context = "priority"
+    #     self.update_context_bar()
+    #
+    # def exit_context_mode(self):
+    #     self.date_context = None
+    #     self.query_one("#context_bar").remove_class("visible")
+    #
     def apply_quick_date(self, date_str):
         targets = (
             list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
@@ -495,7 +665,7 @@ class TaskProApp(App):
             if uid != "NEW":
                 subprocess.run(["task", uid, "modify", f"due:{date_str}"])
         self.refresh_tasks()
-        self.exit_context_mode()
+        # self.exit_context_mode()
 
     def apply_quick_prio(self, level):
         targets = (
@@ -505,7 +675,7 @@ class TaskProApp(App):
             if uid != "NEW":
                 subprocess.run(["task", uid, "modify", f"priority:{level}"])
         self.refresh_tasks()
-        self.exit_context_mode()
+        # self.exit_context_mode()
 
     # --- DATA & TABLE ---
     def refresh_tasks(self) -> None:
@@ -535,6 +705,11 @@ class TaskProApp(App):
 
     def update_table_view(self) -> None:
         table = self.query_one(DataTable)
+        # --- SAVE CURSOR POSITION ---
+        # We save the row index so we can jump back to it after the refresh
+        saved_cursor_row = table.cursor_row
+        saved_scroll_x, saved_scroll_y = table.scroll_offset
+
         table.clear(columns=True)
         cols = [
             ("ID", "id"),
@@ -659,6 +834,13 @@ class TaskProApp(App):
                 f"{dep_icon}{t.get('description', '')}",
                 key=uuid,
             )
+            # --- RESTORE CURSOR POSITION ---
+            if table.row_count > 0:
+                # Ensure the saved index isn't out of bounds if the list shrank
+                new_row = min(saved_cursor_row, table.row_count - 1)
+                table.move_cursor(row=new_row)
+                # Restore the scroll position so the view doesn't jump
+                table.scroll_to(x=saved_scroll_x, y=saved_scroll_y, animate=False)
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         if self.sort_state["index"] == event.column_index:
