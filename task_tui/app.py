@@ -172,6 +172,8 @@ class TaskProApp(App):
         Binding("G", "scroll_bottom", "Bottom", show=False),
     ]
 
+    is_dirty = False  # Track if changes exist
+
     def __init__(self):
         super().__init__()
         self.active_uuid = None
@@ -189,25 +191,58 @@ class TaskProApp(App):
             with Vertical(id="editor_panel", classes="view_mode"):
                 yield Static("🔒 VIEWING", id="mode_indicator")
                 yield Label("DESCRIPTION", classes="metadata")
-                yield Input(id="inp_desc")
+                yield Input(id="inp_desc", disabled=True)  # Add read_only=True
                 yield Label("PROJECT", classes="metadata")
-                yield Input(id="inp_proj")
-                yield Label("DUE (YYYYMMDD or e.g. 'tomorrow')", classes="metadata")
-                yield Input(id="inp_due")
+                yield Input(id="inp_proj", disabled=True)
+                yield Label(
+                    "DUE (YYYYMMDD or e.g. 'tomorrow', 'eo[d,m,y]')",
+                    classes="metadata",
+                )
+                yield Input(id="inp_due", disabled=True)
                 yield Label("DEPENDS ON (Ctrl+F to pick tasks)", classes="metadata")
-                yield Input(id="inp_dep")
+                yield Input(id="inp_dep", disabled=True)
                 yield Label("TAGS", classes="metadata")
-                yield Input(id="inp_tags")
+                yield Input(id="inp_tags", disabled=True)
                 yield Label("PRIORITY", classes="metadata")
                 yield Select(
                     [("High", "H"), ("Mid", "M"), ("Low", "L"), ("None", "X")],
                     id="sel_prio",
                     value="X",
+                    disabled=True,  # Start disabled
                 )
                 yield Label("UUID", classes="metadata")
                 yield Static("None", id="uuid_display")
         yield Static("DEBUG LOG", id="debug_panel")
         yield Footer()
+
+    #
+    # def compose(self) -> ComposeResult:
+    #     yield Header()
+    #     yield Static("", id="context_bar")
+    #     with Horizontal(id="workspace"):
+    #         yield DataTable(id="list_panel", cursor_type="row")
+    #         with Vertical(id="editor_panel", classes="view_mode"):
+    #             yield Static("🔒 VIEWING", id="mode_indicator")
+    #             yield Label("DESCRIPTION", classes="metadata")
+    #             yield Input(id="inp_desc")
+    #             yield Label("PROJECT", classes="metadata")
+    #             yield Input(id="inp_proj")
+    #             yield Label("DUE (YYYYMMDD or e.g. 'tomorrow')", classes="metadata")
+    #             yield Input(id="inp_due")
+    #             yield Label("DEPENDS ON (Ctrl+F to pick tasks)", classes="metadata")
+    #             yield Input(id="inp_dep")
+    #             yield Label("TAGS", classes="metadata")
+    #             yield Input(id="inp_tags")
+    #             yield Label("PRIORITY", classes="metadata")
+    #             yield Select(
+    #                 [("High", "H"), ("Mid", "M"), ("Low", "L"), ("None", "X")],
+    #                 id="sel_prio",
+    #                 value="X",
+    #             )
+    #             yield Label("UUID", classes="metadata")
+    #             yield Static("None", id="uuid_display")
+    #     yield Static("DEBUG LOG", id="debug_panel")
+    #     yield Footer()
 
     def on_mount(self) -> None:
         self.refresh_tasks()
@@ -218,6 +253,19 @@ class TaskProApp(App):
             self.action_save_task()
             event.stop()
             return
+        # Detect if a user is trying to type (any single character) while locked
+        if not self.is_modifying and len(event.character or "") == 1:
+            # Check if the key is actually bound to a command first
+            # We allow bound keys like 'j', 'k', '/', etc.
+            is_bound = any(binding.key == event.key for binding in self.BINDINGS)
+
+            if not is_bound:
+                self.notify("Press [b]i[/b] to enter Edit Mode", severity="warning")
+                self.query_one("#debug_panel").update(
+                    "⚠️ Interface locked: Enter Edit Mode (i) to modify fields."
+                )
+                event.stop()
+                return
 
         if self.date_context:
             key = event.key.lower()
@@ -258,6 +306,60 @@ class TaskProApp(App):
 
         if self.is_modifying and event.key == "ctrl+f" and self.focused.id == "inp_dep":
             self.action_fuzzy_find_dep()
+        #
+        # if event.key == "tab" and self.is_modifying and self.is_dirty:
+        #     self.notify(
+        #         "You have unsaved changes! Press x to save or Ctrl+Z to discard.",
+        #         severity="error",
+        #     )
+        #     event.stop()  # Prevents shifting focus back to the table
+        #     return
+
+    def action_quit(self) -> None:
+        if self.is_dirty:
+            self.notify(
+                "⚠️ UNSAVED CHANGES! Save with x or discard with Ctrl+Z before quitting.",
+                severity="error",
+            )
+        else:
+            self.exit()
+
+    # def on_descendant_focus(self, event) -> None:
+    #     """Fires whenever a widget inside the app gets focus."""
+    #     # If the user goes back to the list while dirty
+    #     if isinstance(event.control, DataTable) and self.is_dirty:
+    #         self.notify(
+    #             "⚠️ UNSAVED CHANGES in editor! Save (x)  or Discard (Ctrl+Z) before switching tasks.",
+    #             severity="warning",
+    #             timeout=3,
+    #         )
+    #         # We DON'T event.stop() and DON'T force focus back.
+    #         # This allows you to press 'x' on the list.
+    #
+    def on_descendant_focus(self, event) -> None:
+        """Fires whenever a widget inside the app gets focus."""
+        if isinstance(event.control, DataTable) and self.is_dirty:
+            self.notify(
+                "⚠️ UNSAVED CHANGES! Press 'x' to save or 'Ctrl+Z' to discard.",
+                severity="warning",
+                timeout=3,
+            )
+            # We allow focus to stay on the DataTable so 'x' works.
+            #
+
+    def on_input_changed(self) -> None:
+        if self.is_modifying:
+            self.is_dirty = True
+            # self.query_one("#mode_indicator").update(
+            #     "✏️ MODIFYING [b][yellow](UNSAVED)[/][/]"
+            # )
+            self.query_one("#mode_indicator").update(
+                "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
+            )
+
+    def on_select_changed(self) -> None:
+        if self.is_modifying:
+            self.is_dirty = True
 
     def update_context_bar(self):
         bar = self.query_one("#context_bar")
@@ -566,7 +668,29 @@ class TaskProApp(App):
             self.sort_state["reverse"] = False
         self.update_table_view()
 
+    #
+    # def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+    #     if not self.is_modifying and event.row_key:
+    #         self.load_task_by_uuid(event.row_key.value, focus=False)
+    #
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Called when Enter is pressed on a row."""
+        if self.is_dirty:
+            self.notify(
+                "⚠️ Save (x) or Discard (Ctrl+Z) before switching tasks!",
+                severity="error",
+            )
+            return
+
+        if event.row_key:
+            # Load the task and enter edit mode automatically
+            self.load_task_by_uuid(event.row_key.value, focus=True)
+
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        # NEW GUARD: If we have unsaved changes, don't update the editor fields
+        if self.is_dirty:
+            return
+
         if not self.is_modifying and event.row_key:
             self.load_task_by_uuid(event.row_key.value, focus=False)
 
@@ -592,17 +716,57 @@ class TaskProApp(App):
 
     def set_modify_mode(self, active: bool):
         self.is_modifying = active
+        self.is_dirty = False  # Reset flag whenever we switch modes
         panel = self.query_one("#editor_panel")
         indicator = self.query_one("#mode_indicator")
+
+        # Select all input-capable widgets
+        inputs = self.query("Input, Select, TextArea")
+
         if active:
             panel.remove_class("view_mode")
             panel.add_class("edit_mode")
             indicator.update("✏️ MODIFYING")
+            for node in inputs:
+                node.disabled = False  # Ensure they are interactable
+                if hasattr(node, "read_only"):
+                    node.read_only = False
         else:
             panel.remove_class("edit_mode")
             panel.add_class("view_mode")
             indicator.update("🔒 VIEWING")
+            for node in inputs:
+                node.disabled = True
+                # # Setting read_only keeps them readable but prevents typing
+                # if hasattr(node, "read_only"):
+                #     node.read_only = True
+                # # Select widgets don't have read_only, so we disable them
+                # elif isinstance(node, Select):
+                #     node.disabled = True
+                #
+                # --- CRITICAL FIX START ---
+                # Force focus back to the list so keys like 'j', 'k', and 'i'
+                # are captured by the app/table again instead of the disabled input.
+                self.query_one(DataTable).focus()
+                # --- CRITICAL FIX END ---
+        if not active:
+            self.query_one("#mode_indicator").update("🔒 VIEWING")
+            self.query_one(DataTable).focus()
 
+    #
+    # def set_modify_mode(self, active: bool):
+    #     self.is_modifying = active
+    #     panel = self.query_one("#editor_panel")
+    #     indicator = self.query_one("#mode_indicator")
+    #     if active:
+    #         panel.remove_class("view_mode")
+    #         panel.add_class("edit_mode")
+    #         indicator.update("✏️ MODIFYING")
+    #     else:
+    #         panel.remove_class("edit_mode")
+    #         panel.add_class("view_mode")
+    #         indicator.update("🔒 VIEWING")
+    #
     def action_edit_mode(self):
         if self.active_uuid:
             self.load_task_by_uuid(self.active_uuid, focus=True)
