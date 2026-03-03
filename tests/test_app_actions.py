@@ -505,3 +505,174 @@ class TestCheckTaskwarriorInstalled:
             result = check_taskwarrior_installed()
             
             assert result is False
+
+
+@pytest.mark.unit
+class TestCursorNavigationActions:
+    """Tests for cursor navigation action methods."""
+    
+    def test_action_cursor_down(self):
+        """Test cursor down delegates to DataTable."""
+        app = TaskProApp()
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+        
+        app.action_cursor_down()
+        
+        mock_table.action_cursor_down.assert_called_once()
+    
+    def test_action_cursor_up(self):
+        """Test cursor up delegates to DataTable."""
+        app = TaskProApp()
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+        
+        app.action_cursor_up()
+        
+        mock_table.action_cursor_up.assert_called_once()
+    
+    def test_action_cursor_left(self):
+        """Test cursor left delegates to DataTable."""
+        app = TaskProApp()
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+        
+        app.action_cursor_left()
+        
+        mock_table.action_cursor_left.assert_called_once()
+    
+    def test_action_cursor_right(self):
+        """Test cursor right delegates to DataTable."""
+        app = TaskProApp()
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+        
+        app.action_cursor_right()
+        
+        mock_table.action_cursor_right.assert_called_once()
+    
+    def test_action_scroll_top(self):
+        """Test scroll to top."""
+        app = TaskProApp()
+        app.raw_tasks = [{"uuid": "1"}, {"uuid": "2"}]
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+        
+        app.action_scroll_top()
+        
+        mock_table.scroll_home.assert_called_once()
+        mock_table.move_cursor.assert_called_once_with(row=0)
+    
+    def test_action_scroll_bottom(self):
+        """Test scroll to bottom."""
+        app = TaskProApp()
+        app.raw_tasks = [{"uuid": "1"}, {"uuid": "2"}, {"uuid": "3"}]
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+        
+        app.action_scroll_bottom()
+        
+        mock_table.scroll_end.assert_called_once()
+        mock_table.move_cursor.assert_called_once_with(row=2)  # len(raw_tasks) - 1
+    
+    def test_scroll_bottom_with_empty_tasks(self):
+        """Test scroll to bottom with no tasks."""
+        app = TaskProApp()
+        app.raw_tasks = []
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+        
+        app.action_scroll_bottom()
+        
+        mock_table.scroll_end.assert_called_once()
+        mock_table.move_cursor.assert_called_once_with(row=-1)
+
+
+@pytest.mark.unit
+class TestToggleSelectionAction:
+    """Tests for toggle selection action."""
+    
+    def test_select_task(self):
+        """Test selecting a task adds it to selected_uuids."""
+        app = TaskProApp()
+        app.active_uuid = "abc-123"
+        app.selected_uuids = set()
+        app.update_table_view = Mock()
+        
+        app.action_toggle_selection()
+        
+        assert "abc-123" in app.selected_uuids
+        app.update_table_view.assert_called_once()
+    
+    def test_deselect_task(self):
+        """Test deselecting a task removes it from selected_uuids."""
+        app = TaskProApp()
+        app.active_uuid = "abc-123"
+        app.selected_uuids = {"abc-123"}
+        app.update_table_view = Mock()
+        
+        app.action_toggle_selection()
+        
+        assert "abc-123" not in app.selected_uuids
+        app.update_table_view.assert_called_once()
+    
+    def test_toggle_multiple_tasks(self):
+        """Test selecting and deselecting multiple tasks."""
+        app = TaskProApp()
+        app.update_table_view = Mock()
+        app.selected_uuids = set()
+        
+        # Select first task
+        app.active_uuid = "task-1"
+        app.action_toggle_selection()
+        assert "task-1" in app.selected_uuids
+        
+        # Select second task
+        app.active_uuid = "task-2"
+        app.action_toggle_selection()
+        assert "task-1" in app.selected_uuids
+        assert "task-2" in app.selected_uuids
+        
+        # Deselect first task
+        app.active_uuid = "task-1"
+        app.action_toggle_selection()
+        assert "task-1" not in app.selected_uuids
+        assert "task-2" in app.selected_uuids
+    
+    def test_skip_new_task(self):
+        """Test toggle selection skips NEW task."""
+        app = TaskProApp()
+        app.active_uuid = "NEW"
+        app.selected_uuids = set()
+        app.update_table_view = Mock()
+        
+        app.action_toggle_selection()
+        
+        assert "NEW" not in app.selected_uuids
+        app.update_table_view.assert_not_called()
+    
+    def test_skip_none_uuid(self):
+        """Test toggle selection skips when no active task."""
+        app = TaskProApp()
+        app.active_uuid = None
+        app.selected_uuids = set()
+        app.update_table_view = Mock()
+        
+        app.action_toggle_selection()
+        
+        assert len(app.selected_uuids) == 0
+        app.update_table_view.assert_not_called()
+    
+    def test_selection_state_persistence(self):
+        """Test selected_uuids persists across multiple operations."""
+        app = TaskProApp()
+        app.update_table_view = Mock()
+        app.selected_uuids = set()
+        
+        # Build up selection
+        for uuid in ["task-1", "task-2", "task-3"]:
+            app.active_uuid = uuid
+            app.action_toggle_selection()
+        
+        assert len(app.selected_uuids) == 3
+        assert all(uuid in app.selected_uuids for uuid in ["task-1", "task-2", "task-3"])
