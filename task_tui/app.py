@@ -2,6 +2,8 @@ import json
 import subprocess
 import re
 import os
+import sys
+import argparse
 from textual.app import App, ComposeResult
 from textual.widgets import (
     Header,
@@ -11,185 +13,22 @@ from textual.widgets import (
     Input,
     Label,
     Select,
-    TextArea,
-    ListItem,
-    ListView,
 )
 from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
-from textual.screen import ModalScreen
+
+from .screens import QuickMenuScreen, DependencyListScreen, FuzzySearchScreen
+from .utils import get_project_color, get_priority_color, format_urgency
+from .models import load_pending_tasks, sync_tasks
 
 
-# --- QUICK MENU MODAL ---
-class QuickMenuScreen(ModalScreen):
-    def __init__(self, menu_type, app_ref):
-        super().__init__()
-        self.menu_type = menu_type
-        self.app_ref = app_ref
-
-    def compose(self) -> ComposeResult:
-        # We reuse your CSS context_bar look
-        text = ""
-        if self.menu_type == "main":
-            text = "📅 SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
-        elif self.menu_type == "end_of":
-            text = "📅 END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
-        elif self.menu_type == "priority":
-            text = "⚡ SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
-
-        yield Static(text, id="context_bar", classes="visible")
-
-    def on_key(self, event) -> None:
-        key = event.key.lower()
-
-        if key == "escape":
-            if self.menu_type == "end_of":
-                # Go back to main date menu
-                self.dismiss("back_to_main")
-            else:
-                self.dismiss(None)
-
-        # Main Date Logic
-        elif self.menu_type == "main":
-            if key == "n":
-                self.app_ref.apply_quick_date("today")
-                self.dismiss(None)
-            elif key == "t":
-                self.app_ref.apply_quick_date("tomorrow")
-                self.dismiss(None)
-            elif key == "e":
-                self.dismiss("go_to_end_of")
-
-        # End Of Logic
-        elif self.menu_type == "end_of":
-            if key == "w":
-                self.app_ref.apply_quick_date("eow")
-            elif key == "m":
-                self.app_ref.apply_quick_date("eom")
-            elif key == "y":
-                self.app_ref.apply_quick_date("eoy")
-            if key in ["w", "m", "y"]:
-                self.dismiss(None)
-
-        # Priority Logic
-        elif self.menu_type == "priority":
-            if key == "h":
-                self.app_ref.apply_quick_prio("H")
-            elif key == "m":
-                self.app_ref.apply_quick_prio("M")
-            elif key == "l":
-                self.app_ref.apply_quick_prio("L")
-            elif key == "x":
-                self.app_ref.apply_quick_prio("")
-            if key in ["h", "m", "l", "x"]:
-                self.dismiss(None)
-
-        event.stop()  # CRITICAL: This kills the key so it never hits the main app
-
-
-# --- DEPENDENCY LIST SCREEN ---
-class DependencyListScreen(ModalScreen):
-    def __init__(self, dependencies, all_tasks):
-        super().__init__()
-        self.dependencies = dependencies
-        self.all_tasks = all_tasks
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="fuzzy_container"):
-            yield Label("🔗 DEPENDENCY LIST", id="fuzzy_header")
-            yield Label(
-                "[b]Enter[/b] to jump to task | [b]Esc[/b] to close", id="fuzzy_help"
-            )
-            yield ListView(id="dep_list")
-
-    def on_mount(self) -> None:
-        list_view = self.query_one("#dep_list")
-        dep_set = {str(d) for d in self.dependencies}
-        found = False
-        for t in self.all_tasks:
-            if str(t.get("id")) in dep_set or t.get("uuid") in dep_set:
-                item = ListItem(
-                    Static(
-                        f"{t.get('id')} - {t.get('description')} [dim]({t.get('project', '')})[/dim]"
-                    )
-                )
-                item.uuid = t.get("uuid")
-                list_view.append(item)
-                found = True
-        if not found:
-            list_view.append(ListItem(Static("No active dependencies found.")))
-        list_view.focus()
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if hasattr(event.item, "uuid"):
-            self.dismiss(event.item.uuid)
-        else:
-            self.dismiss(None)
-
-    def on_key(self, event) -> None:
-        if event.key == "escape":
-            self.dismiss(None)
-
-
-# --- FUZZY SEARCH MODAL ---
-class FuzzySearchScreen(ModalScreen):
-    def compose(self) -> ComposeResult:
-        with Vertical(id="fuzzy_container"):
-            yield Label("🔍 TASK SEARCH", id="fuzzy_header")
-            yield Label(
-                "Type to filter | [b]Enter[/b] to select | [b]Esc[/b] to cancel",
-                id="fuzzy_help",
-            )
-            yield Input(
-                placeholder="Search description or project...", id="fuzzy_input"
-            )
-            yield ListView(id="fuzzy_list")
-
-    def on_mount(self) -> None:
-        self.all_tasks = self.load_tasks()
-        self.update_list("")
-        self.query_one("#fuzzy_input").focus()
-
-    def on_key(self, event) -> None:
-        """Handle Vim-like navigation in the search results."""
-        list_view = self.query_one("#fuzzy_list")
-
-        if event.key == "j":
-            list_view.action_cursor_down()
-            event.stop()
-        elif event.key == "k":
-            list_view.action_cursor_up()
-            event.stop()
-        elif event.key == "escape":
-            self.dismiss(None)
-
-    def load_tasks(self):
-        res = subprocess.run(
-            ["task", "status:pending", "export", "rc.json.array=on"],
-            capture_output=True,
-            text=True,
-        )
-        try:
-            return json.loads(res.stdout)
-        except:
-            return []
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self.update_list(event.value.lower())
-
-    def update_list(self, search_term: str) -> None:
-        list_view = self.query_one("#fuzzy_list")
-        list_view.clear()
-        for t in self.all_tasks:
-            desc = t.get("description", "")
-            proj = t.get("project", "")
-            if search_term in desc.lower() or search_term in proj.lower():
-                item = ListItem(Static(f"{t.get('id')} - {desc} [dim]({proj})[/dim]"))
-                item.uuid = t.get("uuid")
-                list_view.append(item)
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        self.dismiss(event.item.uuid)
+def check_taskwarrior_installed() -> bool:
+    """Check if Taskwarrior is installed and accessible."""
+    try:
+        subprocess.run(["task", "--version"], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
 
 
 # --- MAIN APP ---
@@ -239,7 +78,7 @@ class TaskProApp(App):
         Binding("G", "scroll_bottom", "Bottom", show=False),
     ]
 
-    is_dirty = False  # Track if changes exist
+    is_dirty = False
 
     def __init__(self):
         super().__init__()
@@ -248,6 +87,7 @@ class TaskProApp(App):
         self.is_modifying = False
         self.sort_state = {"index": 5, "reverse": True}
         self.raw_tasks = []
+        self.no_sync = False
         self.date_context = None
 
     def compose(self) -> ComposeResult:
@@ -282,104 +122,22 @@ class TaskProApp(App):
         yield Static("DEBUG LOG", id="debug_panel")
         yield Footer()
 
-    #
-    # def compose(self) -> ComposeResult:
-    #     yield Header()
-    #     yield Static("", id="context_bar")
-    #     with Horizontal(id="workspace"):
-    #         yield DataTable(id="list_panel", cursor_type="row")
-    #         with Vertical(id="editor_panel", classes="view_mode"):
-    #             yield Static("🔒 VIEWING", id="mode_indicator")
-    #             yield Label("DESCRIPTION", classes="metadata")
-    #             yield Input(id="inp_desc")
-    #             yield Label("PROJECT", classes="metadata")
-    #             yield Input(id="inp_proj")
-    #             yield Label("DUE (YYYYMMDD or e.g. 'tomorrow')", classes="metadata")
-    #             yield Input(id="inp_due")
-    #             yield Label("DEPENDS ON (Ctrl+F to pick tasks)", classes="metadata")
-    #             yield Input(id="inp_dep")
-    #             yield Label("TAGS", classes="metadata")
-    #             yield Input(id="inp_tags")
-    #             yield Label("PRIORITY", classes="metadata")
-    #             yield Select(
-    #                 [("High", "H"), ("Mid", "M"), ("Low", "L"), ("None", "X")],
-    #                 id="sel_prio",
-    #                 value="X",
-    #             )
-    #             yield Label("UUID", classes="metadata")
-    #             yield Static("None", id="uuid_display")
-    #     yield Static("DEBUG LOG", id="debug_panel")
-    #     yield Footer()
-
     def on_mount(self) -> None:
         self.refresh_tasks()
 
     def on_unmount(self) -> None:
-        # Clear the TUI screen so the output below is visible
         os.system("clear")
-
+        if self.no_sync:
+            print("✓ Task-TUI closed (sync skipped).")
+            return
+            
         print("Finalizing... Syncing with Taskwarrior server.")
-        try:
-            # We add a timeout of 10 seconds just in case the server is unreachable
-            subprocess.run(["task", "sync"], check=True, timeout=10)
+        if sync_tasks():
             print("✅ Sync Done!")
-        except subprocess.TimeoutExpired:
-            print("⚠️ Sync timed out. Your changes are saved locally.")
-        except Exception:
-            print("❌ Sync skipped or failed.")
+        else:
+            print("⚠️ Sync timed out or failed. Your changes are saved locally.")
 
     def on_key(self, event) -> None:
-        # # 1. Handle Context Modes (Date/Priority) first to "trap" keys
-        # if self.date_context:
-        #     key = event.key.lower()
-        #
-        #     # Special case: Always allow Escape to get out
-        #     if key == "escape":
-        #         if self.date_context == "end_of":
-        #             self.date_context = "main"
-        #             self.update_context_bar()
-        #         else:
-        #             self.exit_context_mode()
-        #         event.stop()
-        #         return
-        #
-        #     # Main Date Menu
-        #     if self.date_context == "main":
-        #         if key == "n":
-        #             self.apply_quick_date("today")
-        #         elif key == "t":
-        #             self.apply_quick_date("tomorrow")
-        #         elif key == "e":
-        #             self.date_context = "end_of"
-        #             self.update_context_bar()
-        #         event.stop()  # Prevents 'n' from creating a New Task
-        #         return
-        #
-        #     # End Of Menu
-        #     elif self.date_context == "end_of":
-        #         if key == "w":
-        #             self.apply_quick_date("eow")
-        #         elif key == "m":
-        #             self.apply_quick_date("eom")
-        #         elif key == "y":
-        #             self.apply_quick_date("eoy")
-        #         event.stop()
-        #         return
-        #
-        #     # Priority Menu
-        #     elif self.date_context == "priority":
-        #         if key == "h":
-        #             self.apply_quick_prio("H")
-        #         elif key == "m":
-        #             self.apply_quick_prio("M")
-        #         elif key == "l":
-        #             self.apply_quick_prio("L")
-        #         elif key == "x":
-        #             self.apply_quick_prio("")
-        #         event.stop()  # Prevents 'x' from Saving or Marking Done
-        #         return
-        #
-        # 2. Existing Global Guards (Locked Interface)
         if not self.is_modifying and len(event.character or "") == 1:
             is_bound = any(binding.key == event.key for binding in self.BINDINGS)
             if not is_bound:
@@ -395,9 +153,6 @@ class TaskProApp(App):
 
         if self.is_modifying and event.key == "ctrl+f" and self.focused.id == "inp_dep":
             self.action_fuzzy_find_dep()
-
-    # def on_key(self, event) -> None:
-    #     # Force Save even when inside an Input field
     #     if event.key == "S":  # Shift+S
     #         self.action_save_task()
     #         event.stop()
@@ -499,9 +254,6 @@ class TaskProApp(App):
     def on_input_changed(self) -> None:
         if self.is_modifying:
             self.is_dirty = True
-            # self.query_one("#mode_indicator").update(
-            #     "✏️ MODIFYING [b][yellow](UNSAVED)[/][/]"
-            # )
             self.query_one("#mode_indicator").update(
                 "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
             )
@@ -510,23 +262,6 @@ class TaskProApp(App):
         if self.is_modifying:
             self.is_dirty = True
 
-    # def update_context_bar(self):
-    #     bar = self.query_one("#context_bar")
-    #     bar.add_class("visible")
-    #     if self.date_context == "main":
-    #         bar.update(
-    #             "📅  SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
-    #         )
-    #     elif self.date_context == "end_of":
-    #         bar.update(
-    #             "📅  END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
-    #         )
-    #     elif self.date_context == "priority":
-    #         bar.update(
-    #             "⚡  SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
-    #         )
-    #
-    # --- ACTIONS ---
     def action_cursor_down(self):
         self.query_one(DataTable).action_cursor_down()
 
@@ -548,9 +283,19 @@ class TaskProApp(App):
         self.query_one(DataTable).move_cursor(row=len(self.raw_tasks) - 1)
 
     def action_undo(self):
-        subprocess.run(["task", "rc.confirmation=off", "undo"])
-        self.refresh_tasks()
-        self.notify("Last action undone")
+        try:
+            result = subprocess.run(
+                ["task", "rc.confirmation=off", "undo"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                self.refresh_tasks()
+                self.notify("Last action undone")
+            else:
+                self.notify("No action to undo", severity="warning")
+        except Exception as e:
+            self.notify(f"Undo failed: {e}", severity="error")
 
     def action_view_dependencies(self):
         if not self.active_uuid or self.active_uuid == "NEW":
@@ -584,37 +329,39 @@ class TaskProApp(App):
         task = next((t for t in self.raw_tasks if t["uuid"] == self.active_uuid), None)
         if task:
             cmd = "stop" if task.get("start") else "start"
-            subprocess.run(["task", self.active_uuid, cmd])
-            self.refresh_tasks()
+            try:
+                subprocess.run(["task", self.active_uuid, cmd], check=True)
+                self.refresh_tasks()
+                self.notify(f"Task {cmd}ped")
+            except subprocess.CalledProcessError as e:
+                self.notify(f"Failed to {cmd} task", severity="error")
 
     def action_mark_done(self):
-        # 1. Determine which tasks to complete
         targets = (
             list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
         )
-
-        # 2. Guard against empty selection or "NEW" task
         targets = [uid for uid in targets if uid and uid != "NEW"]
 
         if not targets:
             return
 
-        # 3. Execute 'done' for each task
+        failed = []
         for uid in targets:
-            subprocess.run(["task", uid, "done"])
+            try:
+                subprocess.run(["task", uid, "done"], check=True)
+            except subprocess.CalledProcessError:
+                failed.append(uid)
 
-        # 4. Cleanup
-        self.selected_uuids.clear()  # Clear selection after action
+        self.selected_uuids.clear()
         self.refresh_tasks()
-        self.notify(f"Completed {len(targets)} task(s)!")
-
-    #
-    # def action_mark_done(self):
-    #     if not self.active_uuid or self.active_uuid == "NEW":
-    #         return
-    #     subprocess.run(["task", self.active_uuid, "done"])
-    #     self.refresh_tasks()
-    #     self.notify("Task completed!")
+        
+        if not failed:
+            self.notify(f"Completed {len(targets)} task(s)!")
+        else:
+            self.notify(
+                f"Completed {len(targets) - len(failed)}/{len(targets)} tasks",
+                severity="warning"
+            )
 
     def action_fuzzy_find(self):
         def on_select(uuid):
@@ -675,21 +422,41 @@ class TaskProApp(App):
         targets = (
             list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
         )
+        failed = []
         for uid in targets:
             if uid != "NEW":
-                subprocess.run(["task", uid, "modify", f"due:{date_str}"])
+                try:
+                    subprocess.run(
+                        ["task", uid, "modify", f"due:{date_str}"],
+                        check=True,
+                        capture_output=True
+                    )
+                except subprocess.CalledProcessError:
+                    failed.append(uid)
+        
         self.refresh_tasks()
-        # self.exit_context_mode()
+        if failed:
+            self.notify(f"Failed to update {len(failed)} task(s)", severity="warning")
 
     def apply_quick_prio(self, level):
         targets = (
             list(self.selected_uuids) if self.selected_uuids else [self.active_uuid]
         )
+        failed = []
         for uid in targets:
             if uid != "NEW":
-                subprocess.run(["task", uid, "modify", f"priority:{level}"])
+                try:
+                    subprocess.run(
+                        ["task", uid, "modify", f"priority:{level}"],
+                        check=True,
+                        capture_output=True
+                    )
+                except subprocess.CalledProcessError:
+                    failed.append(uid)
+        
         self.refresh_tasks()
-        # self.exit_context_mode()
+        if failed:
+            self.notify(f"Failed to update {len(failed)} task(s)", severity="warning")
 
     # --- DATA & TABLE ---
     def refresh_tasks(self) -> None:
@@ -701,21 +468,13 @@ class TaskProApp(App):
             except:
                 pass
 
-        res = subprocess.run(
-            ["task", "status:pending", "export", "rc.json.array=on"],
-            capture_output=True,
-            text=True,
-        )
-        try:
-            self.raw_tasks = json.loads(res.stdout)
-            self.update_table_view()
-            if saved_row_key:
-                for idx, row_key in enumerate(table.rows):
-                    if row_key == saved_row_key:
-                        table.move_cursor(row=idx)
-                        break
-        except:
-            pass
+        self.raw_tasks = load_pending_tasks()
+        self.update_table_view()
+        if saved_row_key:
+            for idx, row_key in enumerate(table.rows):
+                if row_key == saved_row_key:
+                    table.move_cursor(row=idx)
+                    break
 
     def update_table_view(self) -> None:
         table = self.query_one(DataTable)
@@ -744,50 +503,6 @@ class TaskProApp(App):
             )
             table.add_column(f"{label}{icon}", key=cols[i][1])
 
-        # --- PROJECT COLOR HASHING ---
-        def get_project_color(project_name):
-            if not project_name:
-                return "white"
-            # Standard ANSI/Xterm colors (avoiding very dark ones)
-            # This provides a palette of ~200 distinct colors
-            colors = [
-                "green",
-                "yellow",
-                "blue",
-                "magenta",
-                "cyan",
-                "white",
-                "bright_black",
-                "bright_red",
-                "bright_green",
-                "bright_yellow",
-                "bright_blue",
-                "bright_magenta",
-                "bright_cyan",
-                "bright_white",
-                "orange1",
-                "orange_red1",
-                "orchid",
-                "pale_green1",
-                "pale_turquoise1",
-                "hot_pink",
-                "indian_red",
-                "khaki1",
-                "light_coral",
-                "light_pink1",
-                "light_salmon1",
-                "light_sea_green",
-                "light_skyblue1",
-                "light_slate_blue",
-                "light_steel_blue1",
-                "medium_orchid1",
-                "medium_purple1",
-                "medium_spring_green",
-            ]
-            # Use a simple hash to pick a consistent color for the project name
-            idx = sum(ord(c) for c in project_name) % len(colors)
-            return colors[idx]
-
         sort_key = cols[self.sort_state["index"]][1]
 
         def sort_logic(t):
@@ -811,26 +526,16 @@ class TaskProApp(App):
             key=sort_logic,
             reverse=True if sort_key == "priority" else self.sort_state["reverse"],
         )
-        # sorted_data = sorted(
-        #     self.raw_tasks, key=sort_logic, reverse=self.sort_state["reverse"]
-        # )
 
         for t in sorted_data:
             uuid = t.get("uuid")
             prio = t.get("priority", "X")
-            prio_color = {"H": "red", "M": "yellow", "L": "green"}.get(prio, "white")
+            prio_color = get_priority_color(prio)
 
-            # Get the color for the project
             proj_name = t.get("project", "")
             proj_color = get_project_color(proj_name)
-            # 2. Urgency Color Logic
             urgency_val = t.get("urgency", 0)
-            # If urgency is above 20, wrap it in a red bold tag
-            urgency_str = f"{urgency_val:.1f}"
-            if urgency_val > 20:
-                urgency_display = f"[b][red]{urgency_str}[/][/]"
-            else:
-                urgency_display = urgency_str
+            urgency_display = format_urgency(urgency_val)
 
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.selected_uuids else is_active
@@ -949,20 +654,6 @@ class TaskProApp(App):
             self.query_one("#mode_indicator").update("🔒 VIEWING")
             self.query_one(DataTable).focus()
 
-    #
-    # def set_modify_mode(self, active: bool):
-    #     self.is_modifying = active
-    #     panel = self.query_one("#editor_panel")
-    #     indicator = self.query_one("#mode_indicator")
-    #     if active:
-    #         panel.remove_class("view_mode")
-    #         panel.add_class("edit_mode")
-    #         indicator.update("✏️ MODIFYING")
-    #     else:
-    #         panel.remove_class("edit_mode")
-    #         panel.add_class("view_mode")
-    #         indicator.update("🔒 VIEWING")
-    #
     def action_edit_mode(self):
         if self.active_uuid:
             self.load_task_by_uuid(self.active_uuid, focus=True)
@@ -1012,43 +703,44 @@ class TaskProApp(App):
             self.query_one(DataTable).focus()
             self.notify("Saved!")
 
-    #
-    # def action_save_task(self):
-    #     if not self.active_uuid:
-    #         return
-    #
-    #     # Clean the dependency string: remove spaces and ensure it's a clean comma-separated list
-    #     dep_val = self.query_one("#inp_dep").value.strip().replace(" ", "")
-    #
-    #     target = "add" if self.active_uuid == "NEW" else self.active_uuid
-    #     cmd = ["task", target]
-    #     if self.active_uuid != "NEW":
-    #         cmd.append("modify")
-    #
-    #     cmd.extend(
-    #         [
-    #             f"description:{self.query_one('#inp_desc').value}",
-    #             f"project:{self.query_one('#inp_proj').value}",
-    #             f"due:{self.query_one('#inp_due').value}",
-    #             f"tags:{self.query_one('#inp_tags').value}",
-    #             f"depends:{dep_val}",  # Taskwarrior handles UUIDs here perfectly
-    #             f"priority:{self.query_one('#sel_prio').value if self.query_one('#sel_prio').value != 'X' else ''}",
-    #         ]
-    #     )
-    #
-    #     # Execute and refresh
-    #     subprocess.run(cmd)
-    #     self.set_modify_mode(False)
-    #     self.refresh_tasks()
-    #     self.query_one(DataTable).focus()
-    #
     def action_cancel_edit(self):
         self.set_modify_mode(False)
         self.query_one(DataTable).focus()
 
 
 def run():
-    TaskProApp().run()
+    parser = argparse.ArgumentParser(
+        description="Task-TUI: A modern TUI for Taskwarrior",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="For more information, visit: https://github.com/lbesnard/task-tui"
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="task-tui 0.1.0"
+    )
+    parser.add_argument(
+        "--no-sync",
+        action="store_true",
+        help="Skip automatic sync on startup and exit"
+    )
+    
+    args = parser.parse_args()
+    
+    if not check_taskwarrior_installed():
+        print("❌ Error: Taskwarrior is not installed or not in PATH.")
+        print("Please install Taskwarrior: https://taskwarrior.org/download/")
+        sys.exit(1)
+    
+    try:
+        app = TaskProApp()
+        app.no_sync = args.no_sync
+        app.run()
+    except KeyboardInterrupt:
+        print("\n✓ Task-TUI closed.")
+    except Exception as e:
+        print(f"\n❌ Unexpected error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

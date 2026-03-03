@@ -13,9 +13,33 @@ license = { text = "MIT" }
 keywords = ["taskwarrior", "tui", "productivity", "cli"]
 dependencies = ["textual>=0.85.0"]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
 [project.scripts]
 task-tui = "task_tui.app:run"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["task_tui*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+

@@ -1,2 +1,15 @@
 task_tui.egg-info/
 task_tui/__pycache__/
+task_tui/**/__pycache__/
+*.pyc
+*.pyo
+__pycache__/
+.coverage
+htmlcov/
+.pytest_cache/
+*.backup
+dist/
+build/
+.venv/
+venv/
+*.egg-info/
