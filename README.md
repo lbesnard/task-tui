@@ -13,7 +13,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Urgency Alerts**: Task **Urgency** values above 20 are highlighted in **bold red** to help you focus on critical items.
 - **Fuzzy Search & Dependency Picking**:
   - Press `/` to search all pending tasks.
-  - While editing dependencies, use `Ctrl+F` to search and pick tasks to add to the dependency list.
+  - While editing dependencies, press `/` to search and pick tasks to add to the dependency list.
 - **Dependency Explorer**: Press `v` to open a dedicated modal showing all tasks the current item depends on, with the ability to "jump" directly to them.
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
@@ -28,13 +28,33 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - Python 3.10+
 - [Taskwarrior](https://taskwarrior.org/download/) installed and configured in your `PATH`.
 
-### Quick Install
+### Stable release (recommended)
 
-```
-python3 -m pip install git+https://github.com/lbesnard/task-tui.git
+Install the latest release directly from GitHub:
+
+```bash
+pip install https://github.com/lbesnard/task-tui/releases/latest/download/task_tui-$(curl -s https://api.github.com/repos/lbesnard/task-tui/releases/latest | grep -Po '"tag_name": "v\K[^"]+').whl
 ```
 
-### Setup
+Or pick a specific version from the [Releases page](https://github.com/lbesnard/task-tui/releases) and install it directly:
+
+```bash
+pip install https://github.com/lbesnard/task-tui/releases/download/v1.0.0/task_tui-1.0.0-py3-none-any.whl
+```
+
+### Via pipx (isolated environment — great for CLI tools)
+
+```bash
+pipx install https://github.com/lbesnard/task-tui/releases/latest/download/task_tui-$(curl -s https://api.github.com/repos/lbesnard/task-tui/releases/latest | grep -Po '"tag_name": "v\K[^"]+').whl
+```
+
+### Latest from source
+
+```bash
+pip install git+https://github.com/lbesnard/task-tui.git
+```
+
+### Development install
 
 1. Clone the repository:
 
@@ -88,6 +108,26 @@ pip install -e .
 
 ## 🛠 Configuration
 
-Task-TUI reads directly from your `.taskrc`. No extra configuration is required.
+Task-TUI reads directly from your `.taskrc`, and now also supports an optional app config file.
+
+On first run, Task-TUI creates:
+
+`~/.local/share/task-tui/config.json`
+
+You can customize keyboard shortcuts and future UI settings there. Example:
+
+```json
+{
+  "shortcuts": {
+    "global_search": "/",
+    "dependency_search": "/",
+    "edit_mode": "i",
+    "save_task": "x"
+  },
+  "ui": {
+    "show_debug_panel": true
+  }
+}
+```
 
 If you have a `taskserver` configured, Task-TUI will attempt to sync your changes automatically when you close the application.

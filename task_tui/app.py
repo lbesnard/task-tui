@@ -4,6 +4,7 @@ import re
 import os
 import sys
 import argparse
+from copy import deepcopy
 from textual.app import App, ComposeResult
 from textual.widgets import (
     Header,
@@ -20,6 +21,7 @@ from textual.binding import Binding
 from .screens import QuickMenuScreen, DependencyListScreen, FuzzySearchScreen
 from .utils import get_project_color, get_priority_color, format_urgency
 from .models import load_pending_tasks, sync_tasks
+from .config import DEFAULT_CONFIG, load_app_config
 
 
 def check_taskwarrior_installed() -> bool:
@@ -29,6 +31,21 @@ def check_taskwarrior_installed() -> bool:
         return True
     except (FileNotFoundError, subprocess.CalledProcessError):
         return False
+
+
+class DependsInput(Input):
+    def on_key(self, event) -> None:
+        app = getattr(self, "app", None)
+        if (
+            app
+            and getattr(self, "id", "") == "inp_dep"
+            and getattr(app, "is_modifying", False)
+            and hasattr(app, "_is_dependency_search_key")
+            and app._is_dependency_search_key(event.key, event.character or "")
+        ):
+            app.action_fuzzy_find_dep()
+            event.stop()
+            return
 
 
 # --- MAIN APP ---
@@ -55,32 +72,36 @@ class TaskProApp(App):
     .visible { display: block !important; }
     """
 
-    BINDINGS = [
-        Binding("/", "fuzzy_find", "Search"),
-        Binding("v", "view_dependencies", "ViewDeps"),
-        Binding("u", "undo", "Undo"),
-        Binding("space", "toggle_selection", "Select"),
-        Binding("t", "date_mode", "SetDate"),
-        Binding("p", "prio_mode", "SetPrio"),
-        Binding("i", "edit_mode", "Modify/Edit"),
-        Binding("n", "new_task", "New"),
-        Binding("x", "save_task", "Save"),
-        Binding("s", "toggle_start", "Start/Stop"),
-        Binding("d", "mark_done", "Done"),
-        Binding("r", "refresh_tasks", "Refresh"),
-        Binding("ctrl+z", "cancel_edit", "Back"),
-        Binding("q", "quit", "Quit"),
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("h", "cursor_left", "Left", show=False),
-        Binding("l", "cursor_right", "Right", show=False),
-        Binding("g", "scroll_top", "Top", show=False),
-        Binding("G", "scroll_bottom", "Bottom", show=False),
+    KEY_BINDING_META = [
+        ("global_search", "fuzzy_find", "Search", True),
+        ("view_dependencies", "view_dependencies", "ViewDeps", True),
+        ("undo", "undo", "Undo", True),
+        ("toggle_selection", "toggle_selection", "Select", True),
+        ("date_mode", "date_mode", "SetDate", True),
+        ("prio_mode", "prio_mode", "SetPrio", True),
+        ("edit_mode", "edit_mode", "Modify/Edit", True),
+        ("new_task", "new_task", "New", True),
+        ("save_task", "save_task", "Save", True),
+        ("toggle_start", "toggle_start", "Start/Stop", True),
+        ("mark_done", "mark_done", "Done", True),
+        ("refresh_tasks", "refresh_tasks", "Refresh", True),
+        ("cancel_edit", "cancel_edit", "Back", True),
+        ("quit", "quit", "Quit", True),
+        ("cursor_down", "cursor_down", "Down", False),
+        ("cursor_up", "cursor_up", "Up", False),
+        ("cursor_left", "cursor_left", "Left", False),
+        ("cursor_right", "cursor_right", "Right", False),
+        ("scroll_top", "scroll_top", "Top", False),
+        ("scroll_bottom", "scroll_bottom", "Bottom", False),
     ]
+    BINDINGS = []
 
     is_dirty = False
 
-    def __init__(self):
+    def __init__(self, config=None):
+        self.config = config or deepcopy(DEFAULT_CONFIG)
+        self.shortcuts = self.config.get("shortcuts", {})
+        self.BINDINGS = self._build_bindings()
         super().__init__()
         self.active_uuid = None
         self.selected_uuids = set()
@@ -89,6 +110,37 @@ class TaskProApp(App):
         self.raw_tasks = []
         self.no_sync = False
         self.date_context = None
+
+    def _build_bindings(self):
+        default_shortcuts = DEFAULT_CONFIG.get("shortcuts", {})
+        bindings = []
+        for shortcut_key, action, label, show in self.KEY_BINDING_META:
+            key = self.shortcuts.get(shortcut_key, default_shortcuts.get(shortcut_key))
+            if key:
+                bindings.append(Binding(key, action, label, show=show))
+        return bindings
+
+    def _dependency_search_keys(self):
+        keys = self.shortcuts.get("dependency_search", ["/"])
+        if isinstance(keys, str):
+            return [keys]
+        if isinstance(keys, list):
+            return keys
+        return ["/"]
+
+    def _is_dependency_search_key(self, key: str, character: str = "") -> bool:
+        configured = {str(k).strip().lower() for k in self._dependency_search_keys()}
+        candidates = {str(key).strip().lower()}
+        if character:
+            candidates.add(str(character).strip().lower())
+        if key == "slash":
+            candidates.add("/")
+        return any(candidate in configured for candidate in candidates)
+
+    def _register_dynamic_bindings(self) -> None:
+        for binding in self.BINDINGS:
+            self.bind(binding.key, binding.action, description=binding.description, show=binding.show)
+        self.refresh_bindings()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -106,8 +158,8 @@ class TaskProApp(App):
                     classes="metadata",
                 )
                 yield Input(id="inp_due", disabled=True)
-                yield Label("DEPENDS ON (Ctrl+F to pick tasks)", classes="metadata")
-                yield Input(id="inp_dep", disabled=True)
+                yield Label("DEPENDS ON (/ to pick tasks)", classes="metadata")
+                yield DependsInput(id="inp_dep", disabled=True)
                 yield Label("TAGS", classes="metadata")
                 yield Input(id="inp_tags", disabled=True)
                 yield Label("PRIORITY", classes="metadata")
@@ -123,6 +175,9 @@ class TaskProApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._register_dynamic_bindings()
+        if not self.config.get("ui", {}).get("show_debug_panel", True):
+            self.query_one("#debug_panel").display = False
         self.refresh_tasks()
 
     def on_unmount(self) -> None:
@@ -138,10 +193,34 @@ class TaskProApp(App):
             print("⚠️ Sync timed out or failed. Your changes are saved locally.")
 
     def on_key(self, event) -> None:
+        focused_id = getattr(getattr(self, "focused", None), "id", None)
+        if (
+            self.is_modifying
+            and focused_id == "inp_dep"
+            and self._is_dependency_search_key(event.key, event.character or "")
+        ):
+            self.action_fuzzy_find_dep()
+            event.stop()
+            return
+
         if not self.is_modifying and len(event.character or "") == 1:
-            is_bound = any(binding.key == event.key for binding in self.BINDINGS)
-            if not is_bound:
+            matched = next(
+                (b for b in self.BINDINGS
+                 if b.key == event.key or b.key == (event.character or "")),
+                None,
+            )
+            if matched is None:
                 self.notify("Press [b]i[/b] to enter Edit Mode", severity="warning")
+                event.stop()
+                return
+            # Textual dispatches bindings by event.key name (e.g. "slash"), but
+            # config-defined keys are stored as characters (e.g. "/").  When they
+            # differ we must call the action ourselves — Textual's dispatcher
+            # won't find a match.
+            if matched.key != event.key:
+                action_method = getattr(self, f"action_{matched.action}", None)
+                if action_method:
+                    action_method()
                 event.stop()
                 return
 
@@ -151,8 +230,6 @@ class TaskProApp(App):
             event.stop()
             return
 
-        if self.is_modifying and event.key == "ctrl+f" and self.focused.id == "inp_dep":
-            self.action_fuzzy_find_dep()
     #     if event.key == "S":  # Shift+S
     #         self.action_save_task()
     #         event.stop()
@@ -208,7 +285,7 @@ class TaskProApp(App):
     #                 self.exit_context_mode()
     #             event.stop()
     #
-    #     if self.is_modifying and event.key == "ctrl+f" and self.focused.id == "inp_dep":
+
     #         self.action_fuzzy_find_dep()
     #     #
     #     # if event.key == "tab" and self.is_modifying and self.is_dirty:
@@ -379,9 +456,14 @@ class TaskProApp(App):
         def on_select(selected_uuid):
             if selected_uuid:
                 current = self.query_one("#inp_dep").value
-                # Append the new UUID to the list
-                new_val = f"{current}, {selected_uuid}" if current else selected_uuid
-                self.query_one("#inp_dep").value = new_val.strip(", ")
+                values = [
+                    item.strip()
+                    for item in current.split(",")
+                    if item.strip() and item.strip() != "/"
+                ]
+                if selected_uuid not in values:
+                    values.append(selected_uuid)
+                self.query_one("#inp_dep").value = ", ".join(values)
 
         self.push_screen(FuzzySearchScreen(), on_select)
 
@@ -733,7 +815,8 @@ def run():
         sys.exit(1)
     
     try:
-        app = TaskProApp()
+        app_config = load_app_config()
+        app = TaskProApp(config=app_config)
         app.no_sync = args.no_sync
         app.run()
     except KeyboardInterrupt:

@@ -1,8 +1,8 @@
 """Tests for app action methods."""
 import pytest
 import subprocess
-from unittest.mock import Mock, call, patch
-from task_tui.app import TaskProApp
+from unittest.mock import Mock, PropertyMock, call, patch
+from task_tui.app import DependsInput, TaskProApp
 
 
 @pytest.fixture
@@ -676,3 +676,90 @@ class TestToggleSelectionAction:
         
         assert len(app.selected_uuids) == 3
         assert all(uuid in app.selected_uuids for uuid in ["task-1", "task-2", "task-3"])
+
+
+@pytest.mark.unit
+class TestSearchShortcutBehavior:
+    def test_global_search_binding_comes_from_config(self):
+        app = TaskProApp(config={"shortcuts": {"global_search": "ctrl+g"}})
+
+        fuzzy_binding = next(b for b in app.BINDINGS if b.action == "fuzzy_find")
+        assert fuzzy_binding.key == "ctrl+g"
+
+    def test_view_dependencies_binding_comes_from_config(self):
+        app = TaskProApp(config={"shortcuts": {"view_dependencies": "a"}})
+
+        dep_binding = next(b for b in app.BINDINGS if b.action == "view_dependencies")
+        assert dep_binding.key == "a"
+
+    def test_dependency_search_uses_slash_in_dep_input(self):
+        app = TaskProApp()
+        app.is_modifying = True
+        app.action_fuzzy_find_dep = Mock()
+        event = Mock(key="/", character="/")
+
+        with patch.object(TaskProApp, "focused", new_callable=PropertyMock) as mock_focused:
+            mock_focused.return_value = Mock(id="inp_dep")
+            app.on_key(event)
+
+        app.action_fuzzy_find_dep.assert_called_once()
+        event.stop.assert_called_once()
+
+
+@pytest.mark.unit
+class TestDependsInputBehavior:
+    def test_depends_input_intercepts_slash_before_typing(self):
+        dep_input = DependsInput(id="inp_dep")
+        mock_app = Mock()
+        mock_app.is_modifying = True
+        mock_app._is_dependency_search_key.return_value = True
+        mock_app.action_fuzzy_find_dep = Mock()
+        event = Mock(key="slash", character="/")
+
+        with patch.object(DependsInput, "app", new_callable=PropertyMock) as app_prop:
+            app_prop.return_value = mock_app
+            dep_input.on_key(event)
+
+        mock_app.action_fuzzy_find_dep.assert_called_once()
+        event.stop.assert_called_once()
+
+    def test_dependency_search_uses_slash_key_name_in_dep_input(self):
+        app = TaskProApp()
+        app.is_modifying = True
+        app.action_fuzzy_find_dep = Mock()
+        event = Mock(key="slash", character="/")
+
+        with patch.object(TaskProApp, "focused", new_callable=PropertyMock) as mock_focused:
+            mock_focused.return_value = Mock(id="inp_dep")
+            app.on_key(event)
+
+        app.action_fuzzy_find_dep.assert_called_once()
+        event.stop.assert_called_once()
+
+    def test_action_fuzzy_find_dep_strips_slash_residue(self):
+        app = TaskProApp()
+        dep_input = Mock()
+        dep_input.value = "/"
+        app.query_one = Mock(return_value=dep_input)
+
+        def fake_push_screen(_screen, callback):
+            callback("69e1-uuid")
+
+        app.push_screen = Mock(side_effect=fake_push_screen)
+        app.action_fuzzy_find_dep()
+
+        assert dep_input.value == "69e1-uuid"
+
+    def test_action_fuzzy_find_dep_avoids_duplicates(self):
+        app = TaskProApp()
+        dep_input = Mock()
+        dep_input.value = "69e1-uuid"
+        app.query_one = Mock(return_value=dep_input)
+
+        def fake_push_screen(_screen, callback):
+            callback("69e1-uuid")
+
+        app.push_screen = Mock(side_effect=fake_push_screen)
+        app.action_fuzzy_find_dep()
+
+        assert dep_input.value == "69e1-uuid"
