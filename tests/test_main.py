@@ -1,7 +1,6 @@
 """Tests for main entry point and CLI."""
 import pytest
-import sys
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from task_tui.app import run, check_taskwarrior_installed
 
 
@@ -10,10 +9,12 @@ class TestMainEntry:
     """Tests for the run() function and CLI entry point."""
     
     @patch('task_tui.app.check_taskwarrior_installed')
+    @patch('task_tui.app.load_app_config')
     @patch('task_tui.app.TaskProApp')
-    def test_run_with_default_args(self, mock_app_class, mock_check_tw):
+    def test_run_with_default_args(self, mock_app_class, mock_load_config, mock_check_tw):
         """Test run() with default arguments."""
         mock_check_tw.return_value = True
+        mock_load_config.return_value = {"shortcuts": {}}
         mock_app = Mock()
         mock_app_class.return_value = mock_app
         
@@ -21,15 +22,18 @@ class TestMainEntry:
             run()
         
         mock_check_tw.assert_called_once()
-        mock_app_class.assert_called_once()
+        mock_load_config.assert_called_once()
+        mock_app_class.assert_called_once_with(config={"shortcuts": {}})
         assert mock_app.no_sync is False
         mock_app.run.assert_called_once()
     
     @patch('task_tui.app.check_taskwarrior_installed')
+    @patch('task_tui.app.load_app_config')
     @patch('task_tui.app.TaskProApp')
-    def test_run_with_no_sync_flag(self, mock_app_class, mock_check_tw):
+    def test_run_with_no_sync_flag(self, mock_app_class, mock_load_config, mock_check_tw):
         """Test run() with --no-sync flag."""
         mock_check_tw.return_value = True
+        mock_load_config.return_value = {"shortcuts": {}}
         mock_app = Mock()
         mock_app_class.return_value = mock_app
         
@@ -70,11 +74,13 @@ class TestMainEntry:
         assert any('Taskwarrior' in str(call) for call in print_calls)
     
     @patch('task_tui.app.check_taskwarrior_installed')
+    @patch('task_tui.app.load_app_config')
     @patch('task_tui.app.TaskProApp')
     @patch('builtins.print')
-    def test_run_keyboard_interrupt(self, mock_print, mock_app_class, mock_check_tw):
+    def test_run_keyboard_interrupt(self, mock_print, mock_app_class, mock_load_config, mock_check_tw):
         """Test run() handles KeyboardInterrupt gracefully."""
         mock_check_tw.return_value = True
+        mock_load_config.return_value = {"shortcuts": {}}
         mock_app = Mock()
         mock_app.run.side_effect = KeyboardInterrupt()
         mock_app_class.return_value = mock_app
@@ -87,11 +93,13 @@ class TestMainEntry:
         assert any('closed' in str(call).lower() for call in print_calls)
     
     @patch('task_tui.app.check_taskwarrior_installed')
+    @patch('task_tui.app.load_app_config')
     @patch('task_tui.app.TaskProApp')
     @patch('builtins.print')
-    def test_run_unexpected_exception(self, mock_print, mock_app_class, mock_check_tw):
+    def test_run_unexpected_exception(self, mock_print, mock_app_class, mock_load_config, mock_check_tw):
         """Test run() handles unexpected exceptions."""
         mock_check_tw.return_value = True
+        mock_load_config.return_value = {"shortcuts": {}}
         mock_app = Mock()
         test_error = RuntimeError("Test error")
         mock_app.run.side_effect = test_error
@@ -108,10 +116,12 @@ class TestMainEntry:
         assert any('Test error' in str(call) for call in print_calls)
     
     @patch('task_tui.app.check_taskwarrior_installed')
+    @patch('task_tui.app.load_app_config')
     @patch('task_tui.app.TaskProApp')
-    def test_run_sets_no_sync_attribute(self, mock_app_class, mock_check_tw):
+    def test_run_sets_no_sync_attribute(self, mock_app_class, mock_load_config, mock_check_tw):
         """Test run() properly sets no_sync attribute on app instance."""
         mock_check_tw.return_value = True
+        mock_load_config.return_value = {"shortcuts": {}}
         mock_app = Mock()
         mock_app_class.return_value = mock_app
         
@@ -126,10 +136,12 @@ class TestMainEntry:
         assert mock_app.no_sync is True
     
     @patch('task_tui.app.check_taskwarrior_installed')
+    @patch('task_tui.app.load_app_config')
     @patch('task_tui.app.TaskProApp')
-    def test_run_app_initialization(self, mock_app_class, mock_check_tw):
+    def test_run_app_initialization(self, mock_app_class, mock_load_config, mock_check_tw):
         """Test run() initializes TaskProApp correctly."""
         mock_check_tw.return_value = True
+        mock_load_config.return_value = {"shortcuts": {}}
         mock_app = Mock()
         mock_app_class.return_value = mock_app
         
@@ -137,5 +149,5 @@ class TestMainEntry:
             run()
         
         # Verify app was created and run
-        mock_app_class.assert_called_once_with()
+        mock_app_class.assert_called_once_with(config={"shortcuts": {}})
         mock_app.run.assert_called_once_with()
