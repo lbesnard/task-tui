@@ -542,19 +542,13 @@ class TaskProApp(App):
 
     # --- DATA & TABLE ---
     def refresh_tasks(self) -> None:
-        table = self.query_one(DataTable)
-        saved_row_key = None
-        if table.row_count > 0:
-            try:
-                saved_row_key = table.get_row_at(table.cursor_row).key
-            except:
-                pass
-
+        target_uuid = self.active_uuid
         self.raw_tasks = load_pending_tasks()
         self.update_table_view()
-        if saved_row_key:
+        if target_uuid and target_uuid != "NEW":
+            table = self.query_one(DataTable)
             for idx, row_key in enumerate(table.rows):
-                if row_key == saved_row_key:
+                if row_key.value == target_uuid:
                     table.move_cursor(row=idx)
                     break
 

@@ -589,6 +589,85 @@ class TestCursorNavigationActions:
 
 
 @pytest.mark.unit
+class TestRefreshTasks:
+    """Tests for refresh_tasks — especially cursor-follows-task behaviour."""
+
+    def _make_row_key(self, value):
+        """Return a simple mock that behaves like a Textual RowKey."""
+        rk = Mock()
+        rk.value = value
+        return rk
+
+    @patch("task_tui.app.load_pending_tasks")
+    def test_cursor_follows_active_task_after_reorder(self, mock_load):
+        """After a refresh the cursor moves to wherever the active task ended up."""
+        app = TaskProApp()
+        app.active_uuid = "def-456"
+        app.update_table_view = Mock()
+
+        mock_load.return_value = []
+
+        mock_table = Mock()
+        # Simulate the task having moved from row 0 to row 2
+        mock_table.rows = {
+            self._make_row_key("abc-123"): Mock(),
+            self._make_row_key("ghi-789"): Mock(),
+            self._make_row_key("def-456"): Mock(),
+        }
+        app.query_one = Mock(return_value=mock_table)
+
+        app.refresh_tasks()
+
+        mock_table.move_cursor.assert_called_once_with(row=2)
+
+    @patch("task_tui.app.load_pending_tasks")
+    def test_cursor_not_moved_when_no_active_task(self, mock_load):
+        """No cursor movement when active_uuid is None."""
+        app = TaskProApp()
+        app.active_uuid = None
+        app.update_table_view = Mock()
+        mock_load.return_value = []
+
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+
+        app.refresh_tasks()
+
+        mock_table.move_cursor.assert_not_called()
+
+    @patch("task_tui.app.load_pending_tasks")
+    def test_cursor_not_moved_for_new_task(self, mock_load):
+        """No cursor movement for the 'NEW' sentinel (unsaved task)."""
+        app = TaskProApp()
+        app.active_uuid = "NEW"
+        app.update_table_view = Mock()
+        mock_load.return_value = []
+
+        mock_table = Mock()
+        app.query_one = Mock(return_value=mock_table)
+
+        app.refresh_tasks()
+
+        mock_table.move_cursor.assert_not_called()
+
+    @patch("task_tui.app.load_pending_tasks")
+    def test_cursor_not_moved_when_task_no_longer_exists(self, mock_load):
+        """If the active task was completed/deleted it won't be in the new list."""
+        app = TaskProApp()
+        app.active_uuid = "gone-uuid"
+        app.update_table_view = Mock()
+        mock_load.return_value = []
+
+        mock_table = Mock()
+        mock_table.rows = {self._make_row_key("other-uuid"): Mock()}
+        app.query_one = Mock(return_value=mock_table)
+
+        app.refresh_tasks()
+
+        mock_table.move_cursor.assert_not_called()
+
+
+@pytest.mark.unit
 class TestToggleSelectionAction:
     """Tests for toggle selection action."""
     
