@@ -48,6 +48,20 @@ class DependsInput(Input):
             return
 
 
+class PrioritySelect(Select):
+    """Select widget that accepts h/m/l/x as quick-pick keys in edit mode."""
+
+    _KEY_MAP = {"h": "H", "m": "M", "l": "L", "x": "X"}
+
+    def on_key(self, event) -> None:
+        app = getattr(self, "app", None)
+        if app and getattr(app, "is_modifying", False):
+            value = self._KEY_MAP.get(event.key)
+            if value is not None:
+                self.value = value
+                event.stop()
+
+
 # --- MAIN APP ---
 class TaskProApp(App):
     CSS = """
@@ -162,8 +176,8 @@ class TaskProApp(App):
                 yield DependsInput(id="inp_dep", disabled=True)
                 yield Label("TAGS", classes="metadata")
                 yield Input(id="inp_tags", disabled=True)
-                yield Label("PRIORITY", classes="metadata")
-                yield Select(
+                yield Label("PRIORITY  (h=High · m=Mid · l=Low · x=None)", classes="metadata")
+                yield PrioritySelect(
                     [("High", "H"), ("Mid", "M"), ("Low", "L"), ("None", "X")],
                     id="sel_prio",
                     value="X",
