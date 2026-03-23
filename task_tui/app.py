@@ -826,6 +826,14 @@ def run():
         app_config = load_app_config()
         app = TaskProApp(config=app_config)
         app.no_sync = args.no_sync
+
+        if not args.no_sync:
+            print("Syncing with Taskwarrior server...")
+            if sync_tasks():
+                print("✅ Sync Done!")
+            else:
+                print("⚠️ Sync timed out or failed. Starting with local data.")
+
         app.run()
     except KeyboardInterrupt:
         print("\n✓ Task-TUI closed.")
