@@ -25,6 +25,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install taskwarrior
+        run: sudo apt-get install -y taskwarrior
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
