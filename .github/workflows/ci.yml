@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install taskwarrior
+        run: sudo apt-get install -y taskwarrior
+
       - name: Install package and dev dependencies
         run: pip install -e ".[dev]"
 
