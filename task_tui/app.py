@@ -18,7 +18,7 @@ from textual.widgets import (
 from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
 
-from .screens import QuickMenuScreen, DependencyListScreen, FuzzySearchScreen
+from .screens import QuickMenuScreen, DependencyListScreen, FuzzySearchScreen, ErrorModalScreen
 from .utils import get_project_color, get_priority_color, format_urgency
 from .models import load_pending_tasks, sync_tasks
 from .config import DEFAULT_CONFIG, load_app_config
@@ -785,7 +785,7 @@ class TaskProApp(App):
             # If Taskwarrior complains, we finally see why in the debug panel
             error_msg = result.stderr.strip() or result.stdout.strip()
             self.query_one("#debug_panel").update(f"❌ ERROR: {error_msg}")
-            self.notify("Save Failed! Check Debug Log.", severity="error")
+            self.push_screen(ErrorModalScreen(error_msg))
         else:
             self.query_one("#debug_panel").update(f"✅ Saved successfully: {target}")
             self.set_modify_mode(False)

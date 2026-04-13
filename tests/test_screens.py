@@ -1,7 +1,7 @@
 """Tests for screen components."""
 import pytest
 from unittest.mock import Mock, patch
-from task_tui.screens import QuickMenuScreen, FuzzySearchScreen, DependencyListScreen
+from task_tui.screens import QuickMenuScreen, FuzzySearchScreen, DependencyListScreen, ErrorModalScreen
 
 
 @pytest.mark.unit
@@ -276,3 +276,50 @@ class TestDependencyListScreen:
         screen.on_key(event)
         
         screen.dismiss.assert_called_once_with(None)
+
+
+@pytest.mark.unit
+class TestErrorModalScreen:
+    def test_init_stores_error_message(self):
+        """Test that the error message is stored on init."""
+        msg = "Invalid due date: 'notadate'"
+        screen = ErrorModalScreen(msg)
+        assert screen.error_message == msg
+
+    def test_escape_key_dismisses(self):
+        """Test ESC dismisses the error modal."""
+        screen = ErrorModalScreen("some error")
+        screen.dismiss = Mock()
+
+        event = Mock()
+        event.key = "escape"
+
+        screen.on_key(event)
+
+        screen.dismiss.assert_called_once_with(None)
+        event.stop.assert_called_once()
+
+    def test_enter_key_dismisses(self):
+        """Test Enter dismisses the error modal."""
+        screen = ErrorModalScreen("some error")
+        screen.dismiss = Mock()
+
+        event = Mock()
+        event.key = "enter"
+
+        screen.on_key(event)
+
+        screen.dismiss.assert_called_once_with(None)
+        event.stop.assert_called_once()
+
+    def test_other_key_does_not_dismiss(self):
+        """Test that other keys do not dismiss the modal."""
+        screen = ErrorModalScreen("some error")
+        screen.dismiss = Mock()
+
+        event = Mock()
+        event.key = "q"
+
+        screen.on_key(event)
+
+        screen.dismiss.assert_not_called()

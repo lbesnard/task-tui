@@ -211,20 +211,24 @@ class TestActionSaveTask:
         cmd = mock_subprocess_app.call_args[0][0]
         assert "depends:" in cmd
 
-    def test_save_failure_notifies_with_error_severity(
+    def test_save_failure_opens_error_modal(
         self, mock_subprocess_app, app_with_widgets
     ):
-        """Non-zero returncode triggers an error-severity notification."""
+        """Non-zero returncode opens an ErrorModalScreen with the error text."""
+        from task_tui.screens import ErrorModalScreen
+
         app_with_widgets.active_uuid = "abc-123"
         mock_subprocess_app.return_value = Mock(
             returncode=1, stdout="", stderr="Task not found"
         )
+        app_with_widgets.push_screen = Mock()
 
         app_with_widgets.action_save_task()
 
-        app_with_widgets.notify.assert_called()
-        _, kwargs = app_with_widgets.notify.call_args
-        assert kwargs.get("severity") == "error"
+        app_with_widgets.push_screen.assert_called_once()
+        modal = app_with_widgets.push_screen.call_args[0][0]
+        assert isinstance(modal, ErrorModalScreen)
+        assert modal.error_message == "Task not found"
 
     def test_save_failure_does_not_refresh_tasks(
         self, mock_subprocess_app, app_with_widgets
