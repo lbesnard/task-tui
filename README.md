@@ -30,11 +30,13 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 
 ### Stable release (recommended)
 
-Install the latest release directly from GitHub:
+Install the latest release with a single command:
 
 ```bash
-pip install https://github.com/lbesnard/task-tui/releases/latest/download/task_tui-$(curl -s https://api.github.com/repos/lbesnard/task-tui/releases/latest | grep -Po '"tag_name": "v\K[^"]+').whl
+curl -fsSL https://raw.githubusercontent.com/lbesnard/task-tui/main/install.sh | sh
 ```
+
+The script automatically fetches the latest version, selects the correct wheel, and installs via `pipx` (preferred) or `pip`.
 
 Or pick a specific version from the [Releases page](https://github.com/lbesnard/task-tui/releases) and install it directly:
 
@@ -45,7 +47,7 @@ pip install https://github.com/lbesnard/task-tui/releases/download/v1.0.0/task_t
 ### Via pipx (isolated environment — great for CLI tools)
 
 ```bash
-pipx install https://github.com/lbesnard/task-tui/releases/latest/download/task_tui-$(curl -s https://api.github.com/repos/lbesnard/task-tui/releases/latest | grep -Po '"tag_name": "v\K[^"]+').whl
+curl -fsSL https://raw.githubusercontent.com/lbesnard/task-tui/main/install.sh | sh
 ```
 
 ### Latest from source
