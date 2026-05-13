@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "task-tui"
-version = "1.4.0"
+version = "1.5.0"
 description = "A modern, interactive TUI for Taskwarrior built with Textual"
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
