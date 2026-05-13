@@ -7,7 +7,7 @@ name = "task-tui"
 version = "1.4.0"
 description = "A modern, interactive TUI for Taskwarrior built with Textual"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<4.0"
 authors = [{ name = "L. Besnard" }]
 license = { text = "MIT" }
 keywords = ["taskwarrior", "tui", "productivity", "cli"]
