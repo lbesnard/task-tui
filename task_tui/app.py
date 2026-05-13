@@ -18,7 +18,7 @@ from textual.widgets import (
 from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
 
-from .screens import QuickMenuScreen, DependencyListScreen, FuzzySearchScreen, ErrorModalScreen
+from .screens import QuickMenuScreen, DependencyListScreen, FuzzySearchScreen, ErrorModalScreen, ProjectFilterScreen, FilterMenuScreen
 from .utils import get_project_color, get_priority_color, format_urgency
 from .models import load_pending_tasks, sync_tasks
 from .config import DEFAULT_CONFIG, load_app_config
@@ -62,6 +62,7 @@ class PrioritySelect(Select):
                 event.stop()
 
 
+
 # --- MAIN APP ---
 class TaskProApp(App):
     CSS = """
@@ -93,6 +94,7 @@ class TaskProApp(App):
         ("toggle_selection", "toggle_selection", "Select", True),
         ("date_mode", "date_mode", "SetDate", True),
         ("prio_mode", "prio_mode", "SetPrio", True),
+        ("filter_mode", "filter_mode", "Filter", True),
         ("edit_mode", "edit_mode", "Modify/Edit", True),
         ("new_task", "new_task", "New", True),
         ("save_task", "save_task", "Save", True),
@@ -124,6 +126,9 @@ class TaskProApp(App):
         self.raw_tasks = []
         self.no_sync = False
         self.date_context = None
+        self.project_filter = set()  # Set of selected project names to filter by
+        self.is_project_filter_active = False  # If True, apply filter; if False, show all
+        self.show_unassigned_tasks = False  # If True, show tasks without a project
 
     def _build_bindings(self):
         default_shortcuts = DEFAULT_CONFIG.get("shortcuts", {})
@@ -489,6 +494,68 @@ class TaskProApp(App):
                 self.selected_uuids.add(self.active_uuid)
             self.update_table_view()
 
+    def _expand_projects_hierarchically(self, selected_projects, all_projects):
+        """Expand parent projects to include all children.
+        
+        If "Work" is selected, also include "Work.BAU", "Work.Admin", etc.
+        
+        Args:
+            selected_projects: Set of projects selected by user
+            all_projects: All available projects
+            
+        Returns:
+            Set of expanded projects (includes children of selected parents)
+        """
+        expanded = set(selected_projects)
+        
+        for project in selected_projects:
+            # Add all projects that start with this project + "."
+            prefix = project + "."
+            for proj in all_projects:
+                if proj.startswith(prefix):
+                    expanded.add(proj)
+        
+        return expanded
+
+    def _get_all_projects(self):
+        """Return the set of all unique project names from raw tasks."""
+        all_projects = set()
+        for task in self.raw_tasks:
+            project = task.get("project", "")
+            if project:
+                all_projects.add(project)
+        return all_projects
+
+    def _apply_filter_result(self, selected_projects, all_projects):
+        """Apply filter result from ProjectFilterScreen."""
+        if selected_projects is not None:
+            self.show_unassigned_tasks = "__unassigned__" in selected_projects
+            real_projects = {p for p in selected_projects if not p.startswith("__")}
+            if real_projects:
+                self.project_filter = self._expand_projects_hierarchically(real_projects, all_projects)
+            else:
+                self.project_filter = set()
+            self.is_project_filter_active = True
+            self.update_table_view()
+
+    def action_open_project_filter(self):
+        """Open the project filter modal."""
+        all_projects = self._get_all_projects()
+
+        if not all_projects:
+            self.notify("No projects found in tasks", severity="warning")
+            return
+
+        if not self.project_filter:
+            self.project_filter = all_projects.copy()
+
+        self.show_unassigned_tasks = "__unassigned__" in self.project_filter
+
+        def on_filter_select(selected_projects):
+            self._apply_filter_result(selected_projects, all_projects)
+
+        self.push_screen(ProjectFilterScreen(all_projects, self.project_filter), on_filter_select)
+
     def action_date_mode(self):
         def check_result(result):
             if result == "go_to_end_of":
@@ -500,6 +567,9 @@ class TaskProApp(App):
 
     def action_prio_mode(self):
         self.push_screen(QuickMenuScreen("priority", self))
+
+    def action_filter_mode(self):
+        self.push_screen(FilterMenuScreen(self))
 
     # def action_date_mode(self):
     #     self.date_context = "main"
@@ -558,6 +628,17 @@ class TaskProApp(App):
     def refresh_tasks(self) -> None:
         target_uuid = self.active_uuid
         self.raw_tasks = load_pending_tasks()
+        
+        # Initialize project filter with all projects if empty
+        if not self.project_filter:
+            all_projects = set()
+            for task in self.raw_tasks:
+                project = task.get("project", "")
+                if project:
+                    all_projects.add(project)
+            self.project_filter = all_projects
+            self.is_project_filter_active = False  # Show all projects initially
+        
         self.update_table_view()
         if target_uuid and target_uuid != "NEW":
             table = self.query_one(DataTable)
@@ -617,6 +698,21 @@ class TaskProApp(App):
             reverse=True if sort_key == "priority" else self.sort_state["reverse"],
         )
 
+        # Apply project filter if active
+        if self.is_project_filter_active:
+            filtered_data = []
+            for t in sorted_data:
+                project = t.get("project", "")
+                is_unassigned = project == "" or project is None
+                
+                # Include if: (project in filter) OR (unassigned AND show_unassigned_tasks)
+                if project in self.project_filter:
+                    filtered_data.append(t)
+                elif is_unassigned and self.show_unassigned_tasks:
+                    filtered_data.append(t)
+            
+            sorted_data = filtered_data
+        
         for t in sorted_data:
             uuid = t.get("uuid")
             prio = t.get("priority", "X")
@@ -652,6 +748,7 @@ class TaskProApp(App):
                 table.scroll_to(x=saved_scroll_x, y=saved_scroll_y, animate=False)
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        """Handle header clicks for sorting."""
         if self.sort_state["index"] == event.column_index:
             self.sort_state["reverse"] = not self.sort_state["reverse"]
         else:
