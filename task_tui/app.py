@@ -129,6 +129,9 @@ class TaskProApp(App):
         self.project_filter = set()  # Set of selected project names to filter by
         self.is_project_filter_active = False  # If True, apply filter; if False, show all
         self.show_unassigned_tasks = False  # If True, show tasks without a project
+        self.tag_filter = set()  # Set of selected tag names to filter by
+        self.is_tag_filter_active = False  # If True, apply filter; if False, show all
+        self.show_untagged_tasks = False  # If True, show tasks without tags
 
     def _build_bindings(self):
         default_shortcuts = DEFAULT_CONFIG.get("shortcuts", {})
@@ -538,6 +541,24 @@ class TaskProApp(App):
             self.is_project_filter_active = True
             self.update_table_view()
 
+    def _get_all_tags(self):
+        """Return the set of all unique tag names from raw tasks."""
+        all_tags = set()
+        for task in self.raw_tasks:
+            tags = task.get("tags", [])
+            if tags:
+                all_tags.update(tags)
+        return all_tags
+
+    def _apply_tag_filter_result(self, selected_tags, all_tags):
+        """Apply tag filter result from TagFilterScreen."""
+        if selected_tags is not None:
+            self.show_untagged_tasks = "__untagged__" in selected_tags
+            real_tags = {t for t in selected_tags if not t.startswith("__")}
+            self.tag_filter = real_tags
+            self.is_tag_filter_active = True
+            self.update_table_view()
+
     def action_open_project_filter(self):
         """Open the project filter modal."""
         all_projects = self._get_all_projects()
@@ -639,6 +660,16 @@ class TaskProApp(App):
             self.project_filter = all_projects
             self.is_project_filter_active = False  # Show all projects initially
         
+        # Initialize tag filter with all tags if empty
+        if not self.tag_filter:
+            all_tags = set()
+            for task in self.raw_tasks:
+                tags = task.get("tags", [])
+                if tags:
+                    all_tags.update(tags)
+            self.tag_filter = all_tags
+            self.is_tag_filter_active = False  # Show all tags initially
+        
         self.update_table_view()
         if target_uuid and target_uuid != "NEW":
             table = self.query_one(DataTable)
@@ -712,7 +743,22 @@ class TaskProApp(App):
                     filtered_data.append(t)
             
             sorted_data = filtered_data
+
+        # Apply tag filter if active
+        if self.is_tag_filter_active:
+            filtered_data = []
+            for t in sorted_data:
+                task_tags = set(t.get("tags", []))
+                is_untagged = not task_tags
+            
+                # Include if: (any task tag in filter) OR (untagged AND show_untagged_tasks)
+                if task_tags.intersection(self.tag_filter):
+                    filtered_data.append(t)
+                elif is_untagged and self.show_untagged_tasks:
+                    filtered_data.append(t)
         
+            sorted_data = filtered_data
+    
         for t in sorted_data:
             uuid = t.get("uuid")
             prio = t.get("priority", "X")
