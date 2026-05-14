@@ -13,3 +13,4 @@ build/
 .venv/
 venv/
 *.egg-info/
+.aider*
