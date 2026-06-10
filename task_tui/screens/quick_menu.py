@@ -1,61 +1,64 @@
+from __future__ import annotations
+
 from textual.app import ComposeResult
 from textual.widgets import Static
 from textual.screen import ModalScreen
 
 
 class QuickMenuScreen(ModalScreen):
-    def __init__(self, menu_type, app_ref):
+    """Keyboard-driven quick-action menu.
+
+    Dismisses with:
+    - A date string (``"today"``, ``"tomorrow"``, ``"eow"``, ``"eom"``, ``"eoy"``)
+      when used as a date picker.
+    - A priority letter (``"H"``, ``"M"``, ``"L"``, ``""``) when used as a
+      priority picker.
+    - ``"end_of"`` to signal the caller should push the end-of submenu.
+    - ``None`` on cancel.
+    """
+
+    def __init__(self, menu_type: str) -> None:
         super().__init__()
         self.menu_type = menu_type
-        self.app_ref = app_ref
 
     def compose(self) -> ComposeResult:
-        text = ""
-        if self.menu_type == "main":
-            text = "📅 SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel"
-        elif self.menu_type == "end_of":
-            text = "📅 END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back"
-        elif self.menu_type == "priority":
-            text = "⚡ SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel"
-
+        text = {
+            "main": "📅 SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel",
+            "end_of": "📅 END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back",
+            "priority": "⚡ SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel",
+        }.get(self.menu_type, "")
         yield Static(text, id="context_bar", classes="visible")
 
     def on_key(self, event) -> None:
         key = event.key.lower()
+        event.stop()
 
         if key == "escape":
-            if self.menu_type == "end_of":
-                self.dismiss("back_to_main")
-            else:
-                self.dismiss(None)
-        elif self.menu_type == "main":
+            self.dismiss("back_to_main" if self.menu_type == "end_of" else None)
+            return
+
+        if self.menu_type == "main":
             if key == "n":
-                self.app_ref.apply_quick_date("today")
-                self.dismiss(None)
+                self.dismiss("today")
             elif key == "t":
-                self.app_ref.apply_quick_date("tomorrow")
-                self.dismiss(None)
+                self.dismiss("tomorrow")
             elif key == "e":
-                self.dismiss("go_to_end_of")
+                self.dismiss("end_of")
+
         elif self.menu_type == "end_of":
             if key == "w":
-                self.app_ref.apply_quick_date("eow")
+                self.dismiss("eow")
             elif key == "m":
-                self.app_ref.apply_quick_date("eom")
+                self.dismiss("eom")
             elif key == "y":
-                self.app_ref.apply_quick_date("eoy")
-            if key in ["w", "m", "y"]:
-                self.dismiss(None)
+                self.dismiss("eoy")
+
         elif self.menu_type == "priority":
             if key == "h":
-                self.app_ref.apply_quick_prio("H")
+                self.dismiss("H")
             elif key == "m":
-                self.app_ref.apply_quick_prio("M")
+                self.dismiss("M")
             elif key == "l":
-                self.app_ref.apply_quick_prio("L")
+                self.dismiss("L")
             elif key == "x":
-                self.app_ref.apply_quick_prio("")
-            if key in ["h", "m", "l", "x"]:
-                self.dismiss(None)
-
-        event.stop()
+                self.dismiss("")
