@@ -23,6 +23,7 @@ class TestLoadPendingTasks:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
     
     def test_empty_result(self, mock_subprocess):
@@ -67,6 +68,31 @@ class TestLoadPendingTasks:
         assert tasks == []
 
 
+class TestLoadPendingTasksErrorReporting:
+    def test_reports_stderr_on_failure(self, mock_subprocess):
+        mock_subprocess.side_effect = subprocess.CalledProcessError(
+            1, "task", stderr="bad taskrc\n"
+        )
+        errors = []
+
+        assert load_pending_tasks(on_error=errors.append) == []
+        assert errors == ["bad taskrc"]
+
+    def test_reports_timeout(self, mock_subprocess):
+        mock_subprocess.side_effect = subprocess.TimeoutExpired("task", 30)
+        errors = []
+
+        assert load_pending_tasks(on_error=errors.append) == []
+        assert "timed out" in errors[0]
+
+    def test_no_error_reported_on_success(self, mock_subprocess):
+        errors = []
+
+        load_pending_tasks(on_error=errors.append)
+
+        assert errors == []
+
+
 class TestSyncTasks:
     def test_successful_sync(self, mock_subprocess):
         """Test successful sync with Taskwarrior server."""
@@ -106,3 +132,29 @@ class TestSyncTasks:
         
         assert result is False
 
+
+
+class TestSaveTaskCommand:
+    def test_new_task_uses_add(self, mock_subprocess):
+        from task_tui.models import commands
+
+        commands.save_task(None, {"description": "x", "priority": ""})
+
+        assert mock_subprocess.call_args[0][0] == ["task", "add", "description:x", "priority:"]
+
+    def test_existing_task_uses_modify(self, mock_subprocess):
+        from task_tui.models import commands
+
+        commands.save_task("abc", {"project": "P"})
+
+        assert mock_subprocess.call_args[0][0] == ["task", "abc", "modify", "project:P"]
+
+    def test_timeout_is_returned_as_failure(self, mock_subprocess):
+        from task_tui.models import commands
+
+        mock_subprocess.side_effect = subprocess.TimeoutExpired("task", 30)
+
+        result = commands.save_task("abc", {"project": "P"})
+
+        assert result.returncode == 1
+        assert "timed out" in result.stderr

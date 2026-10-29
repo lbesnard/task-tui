@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.widgets import Static, Label, Input, ListView, ListItem
 from textual.containers import Vertical
 from textual.screen import ModalScreen
+from textual.widgets import Input, Label, ListItem, ListView, Static
+
+from ..utils import format_task_label
 
 
 class FuzzySearchScreen(ModalScreen):
@@ -55,7 +57,7 @@ class FuzzySearchScreen(ModalScreen):
             desc = t.get("description", "")
             proj = t.get("project", "")
             if search_term in desc.lower() or search_term in proj.lower():
-                item = ListItem(Static(f"{t.get('id')} - {desc} [dim]({proj})[/dim]"))
+                item = ListItem(Static(format_task_label(t)))
                 item.uuid = t.get("uuid")  # type: ignore[attr-defined]
                 lv.append(item)
 
