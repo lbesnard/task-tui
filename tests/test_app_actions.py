@@ -2,7 +2,8 @@
 import pytest
 import subprocess
 from unittest.mock import Mock, PropertyMock, call, patch
-from task_tui.app import DependsInput, TaskProApp
+from task_tui.app import TaskProApp
+from task_tui.widgets import DependsInput
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ class TestUndoAction:
             ["task", "rc.confirmation=off", "undo"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
         app_with_mocked_ui.refresh_tasks.assert_called_once()
         app_with_mocked_ui.notify.assert_called()
@@ -59,7 +61,8 @@ class TestToggleStartAction:
         
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "start"],
-            check=True
+            check=True,
+            timeout=30
         )
         app_with_mocked_ui.refresh_tasks.assert_called_once()
     
@@ -71,7 +74,8 @@ class TestToggleStartAction:
         
         mock_subprocess_app.assert_called_once_with(
             ["task", "def-456", "stop"],
-            check=True
+            check=True,
+            timeout=30
         )
     
     def test_toggle_with_no_active_task(self, mock_subprocess_app, app_with_mocked_ui):
@@ -113,7 +117,8 @@ class TestMarkDoneAction:
         
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "done"],
-            check=True
+            check=True,
+            timeout=30
         )
         app_with_mocked_ui.refresh_tasks.assert_called_once()
     
@@ -177,7 +182,8 @@ class TestQuickDateActions:
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "modify", f"due:{date_str}"],
             check=True,
-            capture_output=True
+            capture_output=True,
+            timeout=30
         )
     
     def test_apply_quick_date_to_selected(self, mock_subprocess_app, app_with_mocked_ui):
@@ -210,7 +216,8 @@ class TestQuickPriorityActions:
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "modify", f"priority:{priority}"],
             check=True,
-            capture_output=True
+            capture_output=True,
+            timeout=30
         )
     
     def test_apply_quick_priority_to_selected(self, mock_subprocess_app, app_with_mocked_ui):
@@ -274,6 +281,7 @@ class TestCheckTaskwarriorInstalled:
             ["task", "rc.confirmation=off", "undo"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
     
     def test_undo_no_action_to_undo(self, mock_subprocess_app, sample_app):
@@ -304,7 +312,8 @@ class TestToggleStartAction:
         
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "start"],
-            check=True
+            check=True,
+            timeout=30
         )
     
     def test_stop_active_task(self, mock_subprocess_app, sample_app):
@@ -316,7 +325,8 @@ class TestToggleStartAction:
         
         mock_subprocess_app.assert_called_once_with(
             ["task", "def-456", "stop"],
-            check=True
+            check=True,
+            timeout=30
         )
     
     def test_toggle_with_no_active_task(self, mock_subprocess_app, sample_app):
@@ -357,7 +367,8 @@ class TestMarkDoneAction:
         
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "done"],
-            check=True
+            check=True,
+            timeout=30
         )
     
     def test_mark_done_multiple_tasks(self, mock_subprocess_app, sample_app):
@@ -420,7 +431,8 @@ class TestQuickDateActions:
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "modify", f"due:{date_str}"],
             check=True,
-            capture_output=True
+            capture_output=True,
+            timeout=30
         )
     
     def test_apply_quick_date_to_selected(self, mock_subprocess_app, sample_app):
@@ -453,7 +465,8 @@ class TestQuickPriorityActions:
         mock_subprocess_app.assert_called_once_with(
             ["task", "abc-123", "modify", f"priority:{priority}"],
             check=True,
-            capture_output=True
+            capture_output=True,
+            timeout=30
         )
     
     def test_apply_quick_priority_to_selected(self, mock_subprocess_app, sample_app):
@@ -566,26 +579,23 @@ class TestCursorNavigationActions:
     def test_action_scroll_bottom(self):
         """Test scroll to bottom."""
         app = TaskProApp()
-        app.raw_tasks = [{"uuid": "1"}, {"uuid": "2"}, {"uuid": "3"}]
-        mock_table = Mock()
+        mock_table = Mock(row_count=3)
         app.query_one = Mock(return_value=mock_table)
         
         app.action_scroll_bottom()
         
         mock_table.scroll_end.assert_called_once()
-        mock_table.move_cursor.assert_called_once_with(row=2)  # len(raw_tasks) - 1
+        mock_table.move_cursor.assert_called_once_with(row=2)
     
     def test_scroll_bottom_with_empty_tasks(self):
         """Test scroll to bottom with no tasks."""
         app = TaskProApp()
-        app.raw_tasks = []
-        mock_table = Mock()
+        mock_table = Mock(row_count=0)
         app.query_one = Mock(return_value=mock_table)
         
         app.action_scroll_bottom()
         
-        mock_table.scroll_end.assert_called_once()
-        mock_table.move_cursor.assert_called_once_with(row=-1)
+        mock_table.move_cursor.assert_not_called()
 
 
 @pytest.mark.unit
