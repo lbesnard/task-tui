@@ -2,7 +2,8 @@
 import pytest
 import subprocess
 from unittest.mock import Mock, PropertyMock, call, patch
-from task_tui.app import DependsInput, TaskProApp
+from task_tui.app import TaskProApp
+from task_tui.widgets import DependsInput
 
 
 @pytest.fixture

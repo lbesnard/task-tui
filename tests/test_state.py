@@ -33,3 +33,24 @@ class TestSorting:
         ids = [t["id"] for t in _state(tasks, "id").get_visible_tasks()]
 
         assert ids == [1, 2, 10]
+
+
+@pytest.mark.unit
+class TestEditingHelpers:
+    def test_build_task_fields_normalises_input(self):
+        from task_tui.editing import build_task_fields
+
+        fields = build_task_fields(
+            description="d", project="p", due="20260315", tags="a,b",
+            depends=" u1 , ,u2 ", priority="X",
+        )
+
+        assert fields["due"] == "20260315T000000"
+        assert fields["depends"] == "u1,u2"
+        assert fields["priority"] == ""
+
+    def test_add_dependency_dedupes_and_drops_stray_slash(self):
+        from task_tui.editing import add_dependency
+
+        assert add_dependency("u1, /", "u2") == "u1, u2"
+        assert add_dependency("u1, u2", "u1") == "u1, u2"
