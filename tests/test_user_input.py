@@ -239,6 +239,7 @@ class TestActionSaveTask:
         mock_subprocess_app.return_value = Mock(
             returncode=1, stdout="", stderr="error"
         )
+        app_with_widgets.push_screen = Mock()
 
         app_with_widgets.action_save_task()
 
