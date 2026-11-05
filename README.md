@@ -20,6 +20,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Snooze (Wait)**: Press `w` to hide a task until later, or set the *Wait* field in the editor. Snoozed tasks leave the default list until their wait date; bring them back with `R` → `waiting`, where they are marked 💤 and can be un-snoozed (`w` → `x`).
 - **Recurring Tasks**: Tick *Recurring* in the editor to pick a recurrence (daily, weekdays, weekly, monthly, ..., or a custom value like `3d`). Recurring tasks are marked 🔁. Taskwarrior requires a due date, and a recurrence can be changed but not removed once a task is recurring.
 - **Full Edit in your `$EDITOR`**: Press `e` to open the task with `task edit` (all fields, UDAs, annotations); the TUI resumes and reloads when you close the editor. Set `ui.editor` to override `$VISUAL`/`$EDITOR`.
+- **Overviews**: Press `V` for Taskwarrior's `stats`, `summary`, `calendar`, `burndown`, `history`, `projects` and `tags` reports without leaving the app.
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on exit to keep your remote servers up to date, and `Y` syncs on demand.
@@ -89,6 +90,7 @@ pip install -e .
 | `/`       | Open Fuzzy Search              |
 | `r`       | Refresh task list              |
 | `R`       | Switch Taskwarrior report      |
+| `V`       | Overviews: stats, summary, calendar, burndown, history, projects, tags |
 | `Y`       | Sync now (`task sync`)         |
 | `u`       | Undo last Taskwarrior action   |
 | `q`       | Quit and Sync                  |

@@ -43,6 +43,7 @@ from .screens import (
     DependencyListScreen,
     ErrorModalScreen,
     FuzzySearchScreen,
+    InfoViewScreen,
     QuickMenuScreen,
 )
 from .state import COLUMNS, AppState, sort_state_from_report
@@ -104,6 +105,7 @@ class TaskProApp(FilterActionsMixin, App):
         ("refresh_tasks", "refresh_tasks", "Refresh", True),
         ("switch_report", "switch_report", "Report", True),
         ("sync", "sync", "Sync", True),
+        ("info_views", "info_views", "Stats", True),
         ("cancel_edit", "cancel_edit", "Back", True),
         ("quit", "quit", "Quit", True),
         ("cursor_down", "cursor_down", "Down", False),
@@ -321,6 +323,10 @@ class TaskProApp(FilterActionsMixin, App):
             self.push_screen(ReportPickerScreen(reports, current), handle)
 
         self._run_blocking(list_reports, done)
+
+    def action_info_views(self) -> None:
+        width = max(60, min(self.size.width - 12, 160))
+        self.push_screen(InfoViewScreen(width=width))
 
     def action_sync(self) -> None:
         if self.is_dirty:

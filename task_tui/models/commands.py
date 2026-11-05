@@ -7,6 +7,7 @@ helpers that report success/failure treat a timeout like any other failure.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from typing import Mapping, Sequence
 
@@ -117,3 +118,29 @@ def save_task(
         return subprocess.CompletedProcess(
             cmd, 1, "", f"task timed out after {TASK_TIMEOUT}s"
         )
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def run_info_view(name: str, width: int = 100) -> str:
+    """Return the plain-text output of a Taskwarrior report such as ``stats``.
+
+    Colors are disabled and any stray escape codes stripped so the text can be
+    shown as-is. Failures are returned as readable text, never raised.
+    """
+    try:
+        res = subprocess.run(
+            ["task", "rc.color=off", f"rc.defaultwidth={width}", "rc.detection=off", name],
+            capture_output=True,
+            text=True,
+            timeout=TASK_TIMEOUT,
+        )
+    except TASK_FAILURES as e:
+        return f"Could not run 'task {name}': {e}"
+    except OSError as e:
+        return f"Could not run 'task {name}': {e}"
+    text = _ANSI.sub("", res.stdout).rstrip()
+    if res.returncode != 0 and not text:
+        text = (res.stderr or "").strip() or f"'task {name}' exited with status {res.returncode}"
+    return text or f"'task {name}' produced no output"
