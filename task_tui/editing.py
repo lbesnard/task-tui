@@ -3,6 +3,41 @@
 from __future__ import annotations
 
 
+# (menu label, Taskwarrior recurrence value) shown after ticking "Recurring"
+RECUR_PRESETS: list[tuple[str, str]] = [
+    ("Daily", "daily"),
+    ("Weekdays (Mon-Fri)", "weekdays"),
+    ("Weekly", "weekly"),
+    ("Every 2 weeks", "biweekly"),
+    ("Monthly", "monthly"),
+    ("Quarterly", "quarterly"),
+    ("Every 6 months", "semiannual"),
+    ("Yearly", "yearly"),
+    ("Custom...", "__custom__"),
+]
+CUSTOM_RECUR = "__custom__"
+DEFAULT_RECUR = "weekly"
+
+
+def resolve_recur(enabled: bool, preset: str, custom: str) -> str:
+    """Turn the recurrence widgets into a ``recur`` value ('' = not recurring)."""
+    if not enabled:
+        return ""
+    if preset == CUSTOM_RECUR:
+        return custom.strip()
+    return preset
+
+
+def split_recur(value: str | None) -> tuple[bool, str, str]:
+    """Inverse of resolve_recur: returns (enabled, preset, custom_text)."""
+    value = (value or "").strip()
+    if not value:
+        return False, DEFAULT_RECUR, ""
+    if value in {v for _, v in RECUR_PRESETS if v != CUSTOM_RECUR}:
+        return True, value, ""
+    return True, CUSTOM_RECUR, value
+
+
 def normalize_due(raw: str) -> str:
     """Expand a bare YYYYMMDD into Taskwarrior's YYYYMMDDT000000; pass anything else through."""
     due = raw.strip()
@@ -33,12 +68,13 @@ def build_task_fields(
     depends: str,
     priority: str,
     wait: str = "",
+    recur: str | None = None,
 ) -> dict[str, str]:
     """Map raw edit-panel values to ``attr -> value`` for ``task add/modify``.
 
     The 'X' (None) priority maps to an empty value, which clears it.
     """
-    return {
+    fields = {
         "description": description,
         "project": project,
         "due": normalize_due(due),
@@ -47,6 +83,11 @@ def build_task_fields(
         "priority": "" if priority == "X" else priority,
         "wait": normalize_due(wait),
     }
+    # Only sent when the caller decided it changed: Taskwarrior refuses to
+    # clear (or sometimes even re-set) the recurrence of a recurring task.
+    if recur is not None:
+        fields["recur"] = recur
+    return fields
 
 
 def format_annotations(annotations: list[dict] | None) -> str:

@@ -18,6 +18,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Switchable Reports**: Press `R` to switch between your Taskwarrior reports (`next`, `minimal`, `overdue`, or any custom report from your `.taskrc`) without leaving the app. See [Reports](#-reports).
 - **Notes (Annotations)**: Taskwarrior annotations are shown in the side panel; press `a` to add one and `A` to remove one.
 - **Snooze (Wait)**: Press `w` to hide a task until later, or set the *Wait* field in the editor. Snoozed tasks leave the default list until their wait date; bring them back with `R` → `waiting`, where they are marked 💤 and can be un-snoozed (`w` → `x`).
+- **Recurring Tasks**: Tick *Recurring* in the editor to pick a recurrence (daily, weekdays, weekly, monthly, ..., or a custom value like `3d`). Recurring tasks are marked 🔁. Taskwarrior requires a due date, and a recurrence can be changed but not removed once a task is recurring.
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on startup and exit to keep your remote servers up to date.

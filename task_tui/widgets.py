@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Input, Label, Select, Static
+from textual.widgets import Checkbox, Input, Label, Select, Static
+
+from .editing import DEFAULT_RECUR, RECUR_PRESETS
 
 
 class DependsInput(Input):
@@ -46,6 +48,19 @@ class TaskEditor(Vertical):
         yield Input(id="inp_due", disabled=True)
         yield Label("WAIT / SNOOZE UNTIL (same formats as due; empty = visible)", classes="metadata")
         yield Input(id="inp_wait", disabled=True)
+        yield Checkbox("Recurring (needs a due date)", id="chk_recur", disabled=True)
+        yield Select(
+            [(label, value) for label, value in RECUR_PRESETS],
+            id="sel_recur",
+            value=DEFAULT_RECUR,
+            allow_blank=False,
+            disabled=True,
+        )
+        yield Input(
+            id="inp_recur",
+            placeholder="e.g. 3d, 2weeks, 10th, weekly",
+            disabled=True,
+        )
         yield Label("DEPENDS ON (/ to pick tasks)", classes="metadata")
         yield DependsInput(id="inp_dep", disabled=True)
         yield Label("TAGS", classes="metadata")

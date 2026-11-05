@@ -19,7 +19,14 @@ from textual.widgets import (
 )
 
 from .config import DEFAULT_CONFIG, load_app_config
-from .editing import add_dependency, build_task_fields, format_annotations
+from .editing import (
+    CUSTOM_RECUR,
+    add_dependency,
+    build_task_fields,
+    format_annotations,
+    resolve_recur,
+    split_recur,
+)
 from .filters import FilterActionsMixin
 from .models import (
     commands,
@@ -198,6 +205,7 @@ class TaskProApp(FilterActionsMixin, App):
 
     def on_mount(self) -> None:
         self._register_dynamic_bindings()
+        self._sync_recur_widgets()
         if not self.config.get("ui", {}).get("show_debug_panel", True):
             self.query_one("#debug_panel").display = False
         self._init_report()
@@ -382,6 +390,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.state.active_uuid = "NEW"
         for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_wait", "#inp_dep", "#inp_tags"]:
             self.query_one(field).value = ""
+        self._set_recur_widgets("")
         self.query_one("#uuid_display").update("NEW TASK")
         self.query_one("#notes_display").update("(none)")
         self.query_one("#inp_desc").focus()
@@ -653,7 +662,11 @@ class TaskProApp(FilterActionsMixin, App):
 
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.state.selected_uuids else is_active
-            dep_icon = ("🔗 " if t.get("depends") else "") + ("💤 " if is_waiting(t) else "")
+            dep_icon = (
+                ("🔗 " if t.get("depends") else "")
+                + ("🔁 " if t.get("recur") else "")
+                + ("💤 " if is_waiting(t) else "")
+            )
 
             table.add_row(
                 f"{prefix}{t.get('id')}",
@@ -710,9 +723,31 @@ class TaskProApp(FilterActionsMixin, App):
                 "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
             )
 
-    def on_select_changed(self) -> None:
+    def on_select_changed(self, event=None) -> None:
+        if event is not None and getattr(event.select, "id", "") == "sel_recur":
+            self._sync_recur_widgets()
         if self.is_modifying:
             self.is_dirty = True
+
+    def on_checkbox_changed(self) -> None:
+        self._sync_recur_widgets()
+        if self.is_modifying:
+            self.is_dirty = True
+
+    def _set_recur_widgets(self, recur: str | None) -> None:
+        enabled, preset, custom = split_recur(recur)
+        self.query_one("#chk_recur").value = enabled
+        self.query_one("#sel_recur").value = preset
+        self.query_one("#inp_recur").value = custom
+        self._sync_recur_widgets()
+
+    def _sync_recur_widgets(self) -> None:
+        """Show the recurrence menu only when ticked, the text box only for Custom."""
+        enabled = self.query_one("#chk_recur").value
+        self.query_one("#sel_recur").display = bool(enabled)
+        self.query_one("#inp_recur").display = bool(
+            enabled and self.query_one("#sel_recur").value == CUSTOM_RECUR
+        )
 
     # ------------------------------------------------------------------ #
     # Edit mode
@@ -732,6 +767,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.query_one("#inp_tags").value = ",".join(task.get("tags") or [])
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends") or []))
         self.query_one("#sel_prio").value = task.get("priority", "X")
+        self._set_recur_widgets(task.get("recur", ""))
         self.query_one("#notes_display").update(
             format_annotations(task.get("annotations"))
         )
@@ -747,7 +783,7 @@ class TaskProApp(FilterActionsMixin, App):
         panel = self.query_one("#editor_panel")
         indicator = self.query_one("#mode_indicator")
 
-        for node in self.query("Input, Select, TextArea"):
+        for node in self.query("Input, Select, TextArea, Checkbox"):
             node.disabled = not active
             if active and hasattr(node, "read_only"):
                 node.read_only = False
@@ -773,6 +809,23 @@ class TaskProApp(FilterActionsMixin, App):
         is_new = self.state.active_uuid == "NEW"
         target = "add" if is_new else self.state.active_uuid
         save_uuid = None if is_new else self.state.active_uuid
+        task = None if is_new else self.state.get_task_by_uuid(self.state.active_uuid)
+        new_recur = resolve_recur(
+            bool(self.query_one("#chk_recur").value),
+            self.query_one("#sel_recur").value,
+            self.query_one("#inp_recur").value,
+        )
+        current_recur = (task or {}).get("recur", "") or ""
+        # Only send recur when it changed (or is set on a new task)
+        recur = new_recur if (new_recur != current_recur and (new_recur or not is_new)) else None
+        if recur == "" and task and task.get("parent"):
+            self.notify(
+                "Taskwarrior cannot remove the recurrence of a recurring task. "
+                "Delete the task to stop the series.",
+                severity="error",
+            )
+            return
+        rc_overrides = ["rc.recurrence.confirmation=yes"] if recur is not None and not is_new else []
         fields = build_task_fields(
             description=self.query_one("#inp_desc").value,
             project=self.query_one("#inp_proj").value,
@@ -781,6 +834,7 @@ class TaskProApp(FilterActionsMixin, App):
             tags=self.query_one("#inp_tags").value,
             depends=self.query_one("#inp_dep").value,
             priority=self.query_one("#sel_prio").value,
+            recur=recur,
         )
 
         def done(result: subprocess.CompletedProcess) -> None:
@@ -795,7 +849,7 @@ class TaskProApp(FilterActionsMixin, App):
                 self.query_one(DataTable).focus()
                 self.notify("Saved!")
 
-        self._run_blocking(lambda: commands.save_task(save_uuid, fields), done)
+        self._run_blocking(lambda: commands.save_task(save_uuid, fields, rc_overrides), done)
 
     def action_cancel_edit(self) -> None:
         self.set_modify_mode(False)

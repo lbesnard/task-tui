@@ -7,7 +7,7 @@ helpers that report success/failure treat a timeout like any other failure.
 from __future__ import annotations
 
 import subprocess
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from .task import TASK_TIMEOUT
 
@@ -78,14 +78,17 @@ def modify_task(uuid: str, modification: str) -> None:
 
 
 def save_task(
-    uuid: str | None, fields: Mapping[str, str]
+    uuid: str | None,
+    fields: Mapping[str, str],
+    rc_overrides: Sequence[str] = (),
 ) -> subprocess.CompletedProcess:
     """Add a new task (uuid=None) or modify an existing one with ``fields``.
 
+    ``rc_overrides`` are ``rc.name=value`` settings placed before the command.
     Never raises on failure: a non-zero returncode and the error text in
     stderr are returned instead, including for timeouts.
     """
-    cmd = ["task", uuid or "add"]
+    cmd = ["task", *rc_overrides, uuid or "add"]
     if uuid:
         cmd.append("modify")
     cmd.extend(f"{name}:{value}" for name, value in fields.items())
