@@ -3,44 +3,30 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .columns import COLUMN_LABELS, COUNT_COLUMNS, DEFAULT_COLUMNS
 from .models.task import Report
 
-# (header label, task field) for each table column, in display order
-COLUMNS: list[tuple[str, str]] = [
-    ("ID", "id"),
-    ("Proj.", "project"),
-    ("P.", "priority"),
-    ("Due", "due"),
-    ("Tags", "tags"),
-    ("Urg.", "urgency"),
-    ("Desc.", "description"),
-]
+# (header label, task field) for the default table columns, in display order
+COLUMNS: list[tuple[str, str]] = [(COLUMN_LABELS[k], k) for k in DEFAULT_COLUMNS]
 
 
-# Taskwarrior sort columns that map onto a TUI table column index
-REPORT_SORT_COLUMNS = {
-    "id": 0,
-    "project": 1,
-    "due": 3,
-    "tags": 4,
-    "urgency": 5,
-    "description": 6,
-}
-
-
-def sort_state_from_report(sort_spec: str) -> dict[str, Any] | None:
+def sort_state_from_report(
+    sort_spec: str, columns: list[tuple[str, str]] | None = None
+) -> dict[str, Any] | None:
     """Translate the first key of a Taskwarrior sort spec (e.g. ``urgency-``).
 
-    Returns None when the key has no matching table column, so the current
-    sort is kept. ``-`` means descending, which is ``reverse=True`` here.
+    Returns None when the key is not one of the displayed ``columns`` (default:
+    the default columns), so the current sort is kept. ``-`` means descending,
+    which is ``reverse=True`` here.
     """
     first = sort_spec.split(",")[0].strip().rstrip("/")
     if not first or first[-1] not in "+-":
         return None
-    index = REPORT_SORT_COLUMNS.get(first[:-1])
-    if index is None:
+    keys = [key for _, key in (columns or COLUMNS)]
+    name = first[:-1]
+    if name not in keys:
         return None
-    return {"index": index, "reverse": first[-1] == "-"}
+    return {"index": keys.index(name), "reverse": first[-1] == "-"}
 
 
 @dataclass
@@ -56,6 +42,7 @@ class AppState:
     active_uuid: str | None = None
     selected_uuids: set[str] = field(default_factory=set)
     sort_state: dict[str, Any] = field(default_factory=lambda: {"index": 5, "reverse": True})
+    columns: list[tuple[str, str]] = field(default_factory=lambda: list(COLUMNS))
 
     # Active Taskwarrior report; None means "all pending tasks"
     report: Report | None = None
@@ -67,6 +54,19 @@ class AppState:
     is_tag_filter_active: bool = False
     show_unassigned_tasks: bool = False
     show_untagged_tasks: bool = False
+
+    def set_columns(self, keys: list[str]) -> None:
+        """Choose the displayed columns, keeping the current sort column if shown.
+
+        If the sorted column is no longer displayed, falls back to the first one.
+        """
+        old_key = self.columns[self.sort_state["index"]][1]
+        self.columns = [(COLUMN_LABELS[k], k) for k in keys]
+        names = [k for k in keys]
+        if old_key in names:
+            self.sort_state["index"] = names.index(old_key)
+        else:
+            self.sort_state = {"index": 0, "reverse": False}
 
     # ------------------------------------------------------------------ #
     # Derived data helpers
@@ -133,7 +133,7 @@ class AppState:
 
     def get_visible_tasks(self) -> list[dict[str, Any]]:
         """Return the sorted and filtered subset of RawTasks to render."""
-        sort_key = COLUMNS[self.sort_state["index"]][1]
+        sort_key = self.columns[self.sort_state["index"]][1]
 
         # Priority ranks High first by default, so its direction is inverted
         reverse = self.sort_state["reverse"]
@@ -164,6 +164,8 @@ class AppState:
 
     def _sort_value(self, task: dict[str, Any], sort_key: str) -> Any:
         val = task.get(sort_key, "")
+        if sort_key in COUNT_COLUMNS:
+            return len(val) if val else 0
         if sort_key in ("urgency", "id"):
             try:
                 return float(val)

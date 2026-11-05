@@ -8,6 +8,7 @@ import sys
 from copy import deepcopy
 from typing import Any, Callable, TypeVar
 
+from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -46,7 +47,8 @@ from .screens import (
     InfoViewScreen,
     QuickMenuScreen,
 )
-from .state import COLUMNS, AppState, sort_state_from_report
+from .columns import cell_text, normalize_columns
+from .state import AppState, sort_state_from_report
 from .utils import format_urgency, get_priority_color, get_project_color, is_waiting
 from .widgets import TaskEditor
 
@@ -125,6 +127,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.BINDINGS = self._build_bindings()
         super().__init__()
         self.state = AppState()
+        self.state.set_columns(normalize_columns(self.config.get("ui", {}).get("columns")))
         self.is_modifying = False
         self.no_sync = False
         self._busy = False
@@ -236,7 +239,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.state.report = report
         self.state.clear_filters()
         if report is not None:
-            new_sort = sort_state_from_report(report.sort)
+            new_sort = sort_state_from_report(report.sort, self.state.columns)
             if new_sort:
                 self.state.sort_state = new_sort
         self._update_subtitle()
@@ -696,39 +699,42 @@ class TaskProApp(FilterActionsMixin, App):
         table.clear(columns=True)
         sort_idx = self.state.sort_state["index"]
         sort_rev = self.state.sort_state["reverse"]
-        for i, (label, key) in enumerate(COLUMNS):
+        for i, (label, key) in enumerate(self.state.columns):
             icon = " 🔽" if i == sort_idx and sort_rev else " 🔼" if i == sort_idx else ""
             table.add_column(f"{label}{icon}", key=key)
 
         for t in self.state.get_visible_tasks():
             uuid = t.get("uuid")
-            prio = t.get("priority", "X")
-            proj_name = t.get("project", "")
-            urgency_val = t.get("urgency", 0)
-
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.state.selected_uuids else is_active
-            dep_icon = (
-                ("🔗 " if t.get("depends") else "")
-                + ("🔁 " if t.get("recur") else "")
-                + ("💤 " if is_waiting(t) else "")
-            )
-
-            table.add_row(
-                f"{prefix}{t.get('id')}",
-                f"[{get_project_color(proj_name)}]{proj_name}[/]",
-                f"[{get_priority_color(prio)}]{prio}[/]",
-                (t.get("due", "") or "")[:8],
-                ",".join(t.get("tags") or []),
-                format_urgency(urgency_val),
-                f"{dep_icon}{t.get('description', '')}",
-                key=uuid,
-            )
+            cells = [self._render_cell(t, key) for _, key in self.state.columns]
+            if cells:
+                cells[0] = f"{prefix}{cells[0]}"
+            table.add_row(*cells, key=uuid)
 
         if table.row_count > 0:
             new_row = min(saved_cursor_row, table.row_count - 1)
             table.move_cursor(row=new_row)
             table.scroll_to(x=saved_scroll_x, y=saved_scroll_y, animate=False)
+
+    def _render_cell(self, task: dict[str, Any], key: str) -> str:
+        """Rich-markup text for one cell of the task table."""
+        if key == "project":
+            name = task.get("project", "")
+            return f"[{get_project_color(name)}]{name}[/]"
+        if key == "priority":
+            prio = task.get("priority", "X")
+            return f"[{get_priority_color(prio)}]{prio}[/]"
+        if key == "urgency":
+            return format_urgency(task.get("urgency", 0))
+        if key == "description":
+            icons = (
+                ("🔗 " if task.get("depends") else "")
+                + ("🔁 " if task.get("recur") else "")
+                + ("💤 " if is_waiting(task) else "")
+            )
+            return f"{icons}{escape(task.get('description', ''))}"
+        return escape(cell_text(task, key))
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         if self.state.sort_state["index"] == event.column_index:

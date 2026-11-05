@@ -21,6 +21,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Recurring Tasks**: Tick *Recurring* in the editor to pick a recurrence (daily, weekdays, weekly, monthly, ..., or a custom value like `3d`). Recurring tasks are marked 🔁. Taskwarrior requires a due date, and a recurrence can be changed but not removed once a task is recurring.
 - **Full Edit in your `$EDITOR`**: Press `e` to open the task with `task edit` (all fields, UDAs, annotations); the TUI resumes and reloads when you close the editor. Set `ui.editor` to override `$VISUAL`/`$EDITOR`.
 - **Overviews**: Press `V` for Taskwarrior's `stats`, `summary`, `calendar`, `burndown`, `history`, `projects` and `tags` reports without leaving the app.
+- **Configurable Columns**: Choose which columns the task table shows (and their order) with `ui.columns`, including extras such as `wait`, `recur`, `entry`, `annotations` and `depends`. See [Configuration](#-configuration).
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on exit to keep your remote servers up to date, and `Y` syncs on demand.
@@ -157,11 +158,14 @@ You can customize keyboard shortcuts and future UI settings there. Example:
   "ui": {
     "show_debug_panel": true,
     "default_report": "next",
-    "editor": "nvim"
+    "editor": "nvim",
+    "columns": ["id", "project", "priority", "due", "tags", "urgency", "description"]
   }
 }
 ```
 
 `default_report` is optional: leave it `null` to start with all pending tasks. `editor` is optional too: leave it `null` to use your `$VISUAL`/`$EDITOR`. The report switcher key is `shortcuts.switch_report` (default `R`).
+
+`columns` controls the task table. Available names: `id`, `project`, `priority`, `due`, `tags`, `urgency`, `description`, `scheduled`, `wait`, `entry`, `modified`, `start`, `recur`, `annotations` (count), `depends` (count), `status`. Unknown names are ignored and an empty list restores the defaults. The default is the seven columns shown above. The sort column is kept when it is still displayed; clicking a header sorts by it.
 
 If you have a `taskserver` configured, Task-TUI will attempt to sync your changes automatically when you close the application.

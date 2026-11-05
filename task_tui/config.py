@@ -3,6 +3,8 @@ import os
 from copy import deepcopy
 from pathlib import Path
 
+from .columns import DEFAULT_COLUMNS, normalize_columns
+
 
 DEFAULT_CONFIG = {
     "shortcuts": {
@@ -37,7 +39,7 @@ DEFAULT_CONFIG = {
         "scroll_top": "g",
         "scroll_bottom": "G",
     },
-    "ui": {"show_debug_panel": True, "default_report": None, "editor": None},
+    "ui": {"show_debug_panel": True, "default_report": None, "editor": None, "columns": list(DEFAULT_COLUMNS)},
 }
 
 
@@ -129,6 +131,8 @@ def _normalize_config(config: dict) -> dict:
         dep_search = ["/"]
     shortcuts["dependency_search"] = dep_search
     normalized["shortcuts"] = shortcuts
+    ui = normalized.setdefault("ui", {})
+    ui["columns"] = normalize_columns(ui.get("columns"))
     return normalized
 
 
