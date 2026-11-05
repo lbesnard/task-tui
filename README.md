@@ -97,6 +97,7 @@ pip install -e .
 | `x`     | **Save**: Save changes (works while focused in inputs) |
 | `s`     | **Start/Stop**: Toggle active status on a task         |
 | `d`     | **Done**: Mark selected task as completed              |
+| `D`     | **Delete**: Delete selected task(s) after confirmation (`u` undoes) |
 | `v`     | **View Deps**: Open the Dependency Explorer modal      |
 | `space` | **Select**: Toggle task for batch operations           |
 

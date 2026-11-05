@@ -1,3 +1,4 @@
+from .confirm import ConfirmScreen
 from .dependency_list import DependencyListScreen
 from .error_modal import ErrorModalScreen
 from .filter_menu import FilterMenuScreen
@@ -7,6 +8,7 @@ from .quick_menu import QuickMenuScreen
 from .report_picker import ALL_PENDING, ReportPickerScreen
 
 __all__ = [
+    "ConfirmScreen",
     "ALL_PENDING",
     "ReportPickerScreen",
     "DependencyListScreen",

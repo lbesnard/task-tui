@@ -37,6 +37,16 @@ def mark_done(uuid: str) -> None:
     subprocess.run(["task", uuid, "done"], check=True, timeout=TASK_TIMEOUT)
 
 
+def delete_task(uuid: str) -> None:
+    """Delete a task without the interactive prompt. Raises one of TASK_FAILURES."""
+    subprocess.run(
+        ["task", "rc.confirmation=off", uuid, "delete"],
+        check=True,
+        capture_output=True,
+        timeout=TASK_TIMEOUT,
+    )
+
+
 def modify_task(uuid: str, modification: str) -> None:
     """Apply a single ``attr:value`` modification. Raises one of TASK_FAILURES."""
     subprocess.run(

@@ -29,6 +29,7 @@ from .models import (
 )
 from .screens import (
     ALL_PENDING,
+    ConfirmScreen,
     ReportPickerScreen,
     DependencyListScreen,
     ErrorModalScreen,
@@ -86,6 +87,7 @@ class TaskProApp(FilterActionsMixin, App):
         ("save_task", "save_task", "Save", True),
         ("toggle_start", "toggle_start", "Start/Stop", True),
         ("mark_done", "mark_done", "Done", True),
+        ("delete_task", "delete_task", "Delete", True),
         ("refresh_tasks", "refresh_tasks", "Refresh", True),
         ("switch_report", "switch_report", "Report", True),
         ("cancel_edit", "cancel_edit", "Back", True),
@@ -429,6 +431,46 @@ class TaskProApp(FilterActionsMixin, App):
                 self.notify(f"Completed {len(targets)} task(s)!")
 
         self._run_blocking(job, done)
+
+    def action_delete_task(self) -> None:
+        targets = self._target_uuids()
+        if not targets:
+            return
+        names = [
+            (self.state.get_task_by_uuid(uid) or {}).get("description", uid)
+            for uid in targets
+        ]
+        shown = "\n".join(f"• {n}" for n in names[:8])
+        if len(names) > 8:
+            shown += f"\n… and {len(names) - 8} more"
+
+        def job() -> list[str]:
+            failed = []
+            for uid in targets:
+                try:
+                    commands.delete_task(uid)
+                except commands.TASK_FAILURES:
+                    failed.append(uid)
+            return failed
+
+        def done(failed: list[str]) -> None:
+            self.state.selected_uuids.clear()
+            self.refresh_tasks()
+            if failed:
+                self.notify(
+                    f"Deleted {len(targets) - len(failed)}/{len(targets)} tasks",
+                    severity="warning",
+                )
+            else:
+                self.notify(f"Deleted {len(targets)} task(s) (press u to undo)")
+
+        def confirmed(yes: bool | None) -> None:
+            if yes:
+                self._run_blocking(job, done)
+
+        self.push_screen(
+            ConfirmScreen(f"🗑  DELETE {len(targets)} TASK(S)?", shown), confirmed
+        )
 
     def action_toggle_selection(self) -> None:
         uuid = self.state.active_uuid
