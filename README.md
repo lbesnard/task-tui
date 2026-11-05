@@ -19,6 +19,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Notes (Annotations)**: Taskwarrior annotations are shown in the side panel; press `a` to add one and `A` to remove one.
 - **Snooze (Wait)**: Press `w` to hide a task until later, or set the *Wait* field in the editor. Snoozed tasks leave the default list until their wait date; bring them back with `R` → `waiting`, where they are marked 💤 and can be un-snoozed (`w` → `x`).
 - **Recurring Tasks**: Tick *Recurring* in the editor to pick a recurrence (daily, weekdays, weekly, monthly, ..., or a custom value like `3d`). Recurring tasks are marked 🔁. Taskwarrior requires a due date, and a recurrence can be changed but not removed once a task is recurring.
+- **Full Edit in your `$EDITOR`**: Press `e` to open the task with `task edit` (all fields, UDAs, annotations); the TUI resumes and reloads when you close the editor. Set `ui.editor` to override `$VISUAL`/`$EDITOR`.
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on startup and exit to keep your remote servers up to date.
@@ -101,6 +102,7 @@ pip install -e .
 | `s`     | **Start/Stop**: Toggle active status on a task         |
 | `d`     | **Done**: Mark selected task as completed              |
 | `D`     | **Delete**: Delete selected task(s) after confirmation (`u` undoes) |
+| `e`     | **Edit in $EDITOR**: open the full task (`task edit`), return to the TUI when done |
 | `a` / `A` | **Notes**: Add an annotation / remove one (shown in the right panel) |
 | `v`     | **View Deps**: Open the Dependency Explorer modal      |
 | `space` | **Select**: Toggle task for batch operations           |
@@ -151,11 +153,12 @@ You can customize keyboard shortcuts and future UI settings there. Example:
   },
   "ui": {
     "show_debug_panel": true,
-    "default_report": "next"
+    "default_report": "next",
+    "editor": "nvim"
   }
 }
 ```
 
-`default_report` is optional: leave it `null` to start with all pending tasks. The report switcher key is `shortcuts.switch_report` (default `R`).
+`default_report` is optional: leave it `null` to start with all pending tasks. `editor` is optional too: leave it `null` to use your `$VISUAL`/`$EDITOR`. The report switcher key is `shortcuts.switch_report` (default `R`).
 
 If you have a `taskserver` configured, Task-TUI will attempt to sync your changes automatically when you close the application.

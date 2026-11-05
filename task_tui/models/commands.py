@@ -6,6 +6,7 @@ helpers that report success/failure treat a timeout like any other failure.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import Mapping, Sequence
 
@@ -65,6 +66,23 @@ def denotate_task(uuid: str, text: str) -> None:
         capture_output=True,
         timeout=TASK_TIMEOUT,
     )
+
+
+def edit_in_editor(uuid: str, editor: str | None = None) -> int:
+    """Run ``task <uuid> edit`` attached to the terminal; returns its exit code.
+
+    ``editor`` overrides ``$VISUAL``/``$EDITOR`` for this call only. There is
+    deliberately no timeout: the user is typing in the editor. The caller must
+    hand the terminal over first (e.g. ``App.suspend``).
+    """
+    env = os.environ.copy()
+    if editor:
+        env["VISUAL"] = editor
+        env["EDITOR"] = editor
+    try:
+        return subprocess.run(["task", uuid, "edit"], env=env).returncode
+    except OSError:
+        return 1
 
 
 def modify_task(uuid: str, modification: str) -> None:

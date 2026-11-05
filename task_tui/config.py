@@ -21,6 +21,7 @@ DEFAULT_CONFIG = {
         "toggle_start": "s",
         "mark_done": "d",
         "delete_task": "D",
+        "edit_external": "e",
         "annotate": "a",
         "denotate": "A",
         "refresh_tasks": "r",
@@ -34,7 +35,7 @@ DEFAULT_CONFIG = {
         "scroll_top": "g",
         "scroll_bottom": "G",
     },
-    "ui": {"show_debug_panel": True, "default_report": None},
+    "ui": {"show_debug_panel": True, "default_report": None, "editor": None},
 }
 
 
@@ -53,6 +54,7 @@ VALIDATED_SHORTCUT_KEYS = [
     "toggle_start",
     "mark_done",
     "delete_task",
+    "edit_external",
     "annotate",
     "denotate",
     "refresh_tasks",

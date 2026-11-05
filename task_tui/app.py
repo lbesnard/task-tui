@@ -98,6 +98,7 @@ class TaskProApp(FilterActionsMixin, App):
         ("toggle_start", "toggle_start", "Start/Stop", True),
         ("mark_done", "mark_done", "Done", True),
         ("delete_task", "delete_task", "Delete", True),
+        ("edit_external", "edit_external", "$EDITOR", True),
         ("annotate", "annotate", "Note", True),
         ("denotate", "denotate", "RmNote", False),
         ("refresh_tasks", "refresh_tasks", "Refresh", True),
@@ -486,6 +487,22 @@ class TaskProApp(FilterActionsMixin, App):
         self.push_screen(
             ConfirmScreen(f"🗑  DELETE {len(targets)} TASK(S)?", shown), confirmed
         )
+
+    def action_edit_external(self) -> None:
+        """Open the active task in $EDITOR via ``task edit``, then reload."""
+        uuid = self.state.active_uuid
+        if not uuid or uuid == "NEW":
+            return
+        editor = self.config.get("ui", {}).get("editor") or None
+        try:
+            with self.suspend():
+                code = commands.edit_in_editor(uuid, editor)
+        except Exception as e:  # e.g. SuspendNotSupported on non-terminal drivers
+            self.notify(f"Cannot open editor here: {e}", severity="error")
+            return
+        self.refresh_tasks()
+        if code != 0:
+            self.notify("Editor exited with an error; task may be unchanged", severity="warning")
 
     def action_annotate(self) -> None:
         uuid = self.state.active_uuid
