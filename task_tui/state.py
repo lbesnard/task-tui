@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .models.task import Report
+
 # (header label, task field) for each table column, in display order
 COLUMNS: list[tuple[str, str]] = [
     ("ID", "id"),
@@ -13,6 +15,32 @@ COLUMNS: list[tuple[str, str]] = [
     ("Urg.", "urgency"),
     ("Desc.", "description"),
 ]
+
+
+# Taskwarrior sort columns that map onto a TUI table column index
+REPORT_SORT_COLUMNS = {
+    "id": 0,
+    "project": 1,
+    "due": 3,
+    "tags": 4,
+    "urgency": 5,
+    "description": 6,
+}
+
+
+def sort_state_from_report(sort_spec: str) -> dict[str, Any] | None:
+    """Translate the first key of a Taskwarrior sort spec (e.g. ``urgency-``).
+
+    Returns None when the key has no matching table column, so the current
+    sort is kept. ``-`` means descending, which is ``reverse=True`` here.
+    """
+    first = sort_spec.split(",")[0].strip().rstrip("/")
+    if not first or first[-1] not in "+-":
+        return None
+    index = REPORT_SORT_COLUMNS.get(first[:-1])
+    if index is None:
+        return None
+    return {"index": index, "reverse": first[-1] == "-"}
 
 
 @dataclass
@@ -28,6 +56,9 @@ class AppState:
     active_uuid: str | None = None
     selected_uuids: set[str] = field(default_factory=set)
     sort_state: dict[str, Any] = field(default_factory=lambda: {"index": 5, "reverse": True})
+
+    # Active Taskwarrior report; None means "all pending tasks"
+    report: Report | None = None
 
     # Filter state
     project_filter: set[str] = field(default_factory=set)

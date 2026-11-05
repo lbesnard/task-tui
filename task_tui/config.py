@@ -20,6 +20,7 @@ DEFAULT_CONFIG = {
         "toggle_start": "s",
         "mark_done": "d",
         "refresh_tasks": "r",
+        "switch_report": "R",
         "cancel_edit": "ctrl+z",
         "quit": "q",
         "cursor_down": "j",
@@ -29,7 +30,7 @@ DEFAULT_CONFIG = {
         "scroll_top": "g",
         "scroll_bottom": "G",
     },
-    "ui": {"show_debug_panel": True},
+    "ui": {"show_debug_panel": True, "default_report": None},
 }
 
 
@@ -47,6 +48,7 @@ VALIDATED_SHORTCUT_KEYS = [
     "toggle_start",
     "mark_done",
     "refresh_tasks",
+    "switch_report",
     "cancel_edit",
     "quit",
     "cursor_down",
