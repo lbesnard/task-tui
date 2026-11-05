@@ -103,6 +103,7 @@ class TaskProApp(FilterActionsMixin, App):
         ("denotate", "denotate", "RmNote", False),
         ("refresh_tasks", "refresh_tasks", "Refresh", True),
         ("switch_report", "switch_report", "Report", True),
+        ("sync", "sync", "Sync", True),
         ("cancel_edit", "cancel_edit", "Back", True),
         ("quit", "quit", "Quit", True),
         ("cursor_down", "cursor_down", "Down", False),
@@ -320,6 +321,28 @@ class TaskProApp(FilterActionsMixin, App):
             self.push_screen(ReportPickerScreen(reports, current), handle)
 
         self._run_blocking(list_reports, done)
+
+    def action_sync(self) -> None:
+        if self.is_dirty:
+            self.notify("Save or discard your edits before syncing", severity="warning")
+            return
+        self.notify("Syncing…")
+
+        def job() -> bool:
+            return sync_tasks(timeout=30, capture=True)
+
+        def done(ok: bool) -> None:
+            if ok:
+                self.refresh_tasks()
+                self.notify("Sync done")
+            else:
+                self.notify(
+                    "Sync failed or timed out. Is a sync server configured? "
+                    "Your changes are saved locally.",
+                    severity="error",
+                )
+
+        self._run_blocking(job, done)
 
     def action_undo(self) -> None:
         def job() -> tuple[bool, Exception | None]:

@@ -101,10 +101,15 @@ def load_pending_tasks(
     return []
 
 
-def sync_tasks(timeout: int = 10) -> bool:
-    """Sync with Taskwarrior server. Returns True on success."""
+def sync_tasks(timeout: int = 10, capture: bool = False) -> bool:
+    """Sync with Taskwarrior server. Returns True on success.
+
+    ``capture=True`` swallows ``task sync`` output; use it while the TUI owns
+    the screen so the output cannot be drawn over the interface.
+    """
     try:
-        subprocess.run(["task", "sync"], check=True, timeout=timeout)
+        extra = {"capture_output": True} if capture else {}
+        subprocess.run(["task", "sync"], check=True, timeout=timeout, **extra)
         return True
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
         return False

@@ -22,7 +22,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Full Edit in your `$EDITOR`**: Press `e` to open the task with `task edit` (all fields, UDAs, annotations); the TUI resumes and reloads when you close the editor. Set `ui.editor` to override `$VISUAL`/`$EDITOR`.
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
-- **Auto-Sync**: Automatically runs `task sync` on startup and exit to keep your remote servers up to date.
+- **Auto-Sync**: Automatically runs `task sync` on exit to keep your remote servers up to date, and `Y` syncs on demand.
 
 ---
 
@@ -89,6 +89,7 @@ pip install -e .
 | `/`       | Open Fuzzy Search              |
 | `r`       | Refresh task list              |
 | `R`       | Switch Taskwarrior report      |
+| `Y`       | Sync now (`task sync`)         |
 | `u`       | Undo last Taskwarrior action   |
 | `q`       | Quit and Sync                  |
 
