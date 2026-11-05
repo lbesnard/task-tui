@@ -6,33 +6,33 @@ import os
 import subprocess
 import sys
 from copy import deepcopy
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.widgets import (
     DataTable,
     Footer,
     Header,
-    Input,
-    Label,
-    Select,
     Static,
 )
 
 from .config import DEFAULT_CONFIG, load_app_config
-from .models import load_pending_tasks, sync_tasks
+from .editing import add_dependency, build_task_fields
+from .filters import FilterActionsMixin
+from .models import commands, load_pending_tasks, sync_tasks
 from .screens import (
     DependencyListScreen,
     ErrorModalScreen,
-    FilterMenuScreen,
     FuzzySearchScreen,
     QuickMenuScreen,
 )
-from .screens.multi_select_filter import MultiSelectFilterScreen
-from .state import AppState
+from .state import COLUMNS, AppState
 from .utils import format_urgency, get_priority_color, get_project_color
+from .widgets import TaskEditor
+
+T = TypeVar("T")
 
 
 def check_taskwarrior_installed() -> bool:
@@ -43,35 +43,7 @@ def check_taskwarrior_installed() -> bool:
         return False
 
 
-class DependsInput(Input):
-    def on_key(self, event) -> None:
-        app = getattr(self, "app", None)
-        if (
-            app
-            and getattr(self, "id", "") == "inp_dep"
-            and getattr(app, "is_modifying", False)
-            and hasattr(app, "_is_dependency_search_key")
-            and app._is_dependency_search_key(event.key, event.character or "")
-        ):
-            app.action_fuzzy_find_dep()
-            event.stop()
-
-
-class PrioritySelect(Select):
-    """Select widget that accepts h/m/l/x as quick-pick keys in edit mode."""
-
-    _KEY_MAP = {"h": "H", "m": "M", "l": "L", "x": "X"}
-
-    def on_key(self, event) -> None:
-        app = getattr(self, "app", None)
-        if app and getattr(app, "is_modifying", False):
-            value = self._KEY_MAP.get(event.key)
-            if value is not None:
-                self.value = value
-                event.stop()
-
-
-class TaskProApp(App):
+class TaskProApp(FilterActionsMixin, App):
     CSS = """
     #fuzzy_container { background: $surface; border: thick $primary; width: 70%; height: 70%; align: center middle; padding: 1; }
     #fuzzy_header { text-align: center; text-style: bold; color: $accent; }
@@ -129,6 +101,7 @@ class TaskProApp(App):
         self.state = AppState()
         self.is_modifying = False
         self.no_sync = False
+        self._busy = False
 
     # ------------------------------------------------------------------ #
     # State property shims (delegate to AppState for backward compat)
@@ -204,31 +177,7 @@ class TaskProApp(App):
         yield Static("", id="context_bar")
         with Horizontal(id="workspace"):
             yield DataTable(id="list_panel", cursor_type="row")
-            with Vertical(id="editor_panel", classes="view_mode"):
-                yield Static("🔒 VIEWING", id="mode_indicator")
-                yield Label("DESCRIPTION", classes="metadata")
-                yield Input(id="inp_desc", disabled=True)
-                yield Label("PROJECT", classes="metadata")
-                yield Input(id="inp_proj", disabled=True)
-                yield Label(
-                    "DUE (YYYYMMDD or e.g. 'tomorrow', 'eo[d,m,y]')", classes="metadata"
-                )
-                yield Input(id="inp_due", disabled=True)
-                yield Label("DEPENDS ON (/ to pick tasks)", classes="metadata")
-                yield DependsInput(id="inp_dep", disabled=True)
-                yield Label("TAGS", classes="metadata")
-                yield Input(id="inp_tags", disabled=True)
-                yield Label(
-                    "PRIORITY  (h=High · m=Mid · l=Low · x=None)", classes="metadata"
-                )
-                yield PrioritySelect(
-                    [("High", "H"), ("Mid", "M"), ("Low", "L"), ("None", "X")],
-                    id="sel_prio",
-                    value="X",
-                    disabled=True,
-                )
-                yield Label("UUID", classes="metadata")
-                yield Static("None", id="uuid_display")
+            yield TaskEditor(id="editor_panel", classes="view_mode")
         yield Static("DEBUG LOG", id="debug_panel")
         yield Footer()
 
@@ -301,19 +250,23 @@ class TaskProApp(App):
         self.refresh_tasks()
 
     def action_undo(self) -> None:
-        try:
-            result = subprocess.run(
-                ["task", "rc.confirmation=off", "undo"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
+        def job() -> tuple[bool, Exception | None]:
+            try:
+                return commands.undo_last_action(), None
+            except Exception as e:
+                return False, e
+
+        def done(outcome: tuple[bool, Exception | None]) -> None:
+            undone, error = outcome
+            if error is not None:
+                self.notify(f"Undo failed: {error}", severity="error")
+            elif undone:
                 self.refresh_tasks()
                 self.notify("Last action undone")
             else:
                 self.notify("No action to undo", severity="warning")
-        except Exception as e:
-            self.notify(f"Undo failed: {e}", severity="error")
+
+        self._run_blocking(job, done)
 
     # ------------------------------------------------------------------ #
     # Cursor actions
@@ -338,8 +291,10 @@ class TaskProApp(App):
 
     def action_scroll_bottom(self) -> None:
         table = self.query_one(DataTable)
+        if table.row_count == 0:
+            return
         table.scroll_end()
-        table.move_cursor(row=len(self.state.raw_tasks) - 1)
+        table.move_cursor(row=table.row_count - 1)
 
     # ------------------------------------------------------------------ #
     # Task actions
@@ -373,40 +328,51 @@ class TaskProApp(App):
             return
         task = self.state.get_task_by_uuid(uuid)
         if task:
-            cmd = "stop" if task.get("start") else "start"
-            try:
-                subprocess.run(["task", uuid, cmd], check=True)
-                self.refresh_tasks()
-                self.notify(f"Task {cmd}ped")
-            except subprocess.CalledProcessError:
-                self.notify(f"Failed to {cmd} task", severity="error")
+            stopping = bool(task.get("start"))
+            verb = "stop" if stopping else "start"
+
+            def job() -> bool:
+                try:
+                    commands.start_or_stop(uuid, stop=stopping)
+                    return True
+                except commands.TASK_FAILURES:
+                    return False
+
+            def done(ok: bool) -> None:
+                if ok:
+                    self.refresh_tasks()
+                    self.notify("Task stopped" if stopping else "Task started")
+                else:
+                    self.notify(f"Failed to {verb} task", severity="error")
+
+            self._run_blocking(job, done)
 
     def action_mark_done(self) -> None:
-        targets = (
-            list(self.state.selected_uuids)
-            if self.state.selected_uuids
-            else [self.state.active_uuid]
-        )
-        targets = [uid for uid in targets if uid and uid != "NEW"]
+        targets = self._target_uuids()
         if not targets:
             return
 
-        failed = []
-        for uid in targets:
-            try:
-                subprocess.run(["task", uid, "done"], check=True)
-            except subprocess.CalledProcessError:
-                failed.append(uid)
+        def job() -> list[str]:
+            failed = []
+            for uid in targets:
+                try:
+                    commands.mark_done(uid)
+                except commands.TASK_FAILURES:
+                    failed.append(uid)
+            return failed
 
-        self.state.selected_uuids.clear()
-        self.refresh_tasks()
-        if failed:
-            self.notify(
-                f"Completed {len(targets) - len(failed)}/{len(targets)} tasks",
-                severity="warning",
-            )
-        else:
-            self.notify(f"Completed {len(targets)} task(s)!")
+        def done(failed: list[str]) -> None:
+            self.state.selected_uuids.clear()
+            self.refresh_tasks()
+            if failed:
+                self.notify(
+                    f"Completed {len(targets) - len(failed)}/{len(targets)} tasks",
+                    severity="warning",
+                )
+            else:
+                self.notify(f"Completed {len(targets)} task(s)!")
+
+        self._run_blocking(job, done)
 
     def action_toggle_selection(self) -> None:
         uuid = self.state.active_uuid
@@ -432,15 +398,8 @@ class TaskProApp(App):
     def action_fuzzy_find_dep(self) -> None:
         def on_select(selected_uuid: str | None) -> None:
             if selected_uuid:
-                current = self.query_one("#inp_dep").value
-                values = [
-                    v.strip()
-                    for v in current.split(",")
-                    if v.strip() and v.strip() != "/"
-                ]
-                if selected_uuid not in values:
-                    values.append(selected_uuid)
-                self.query_one("#inp_dep").value = ", ".join(values)
+                dep_input = self.query_one("#inp_dep")
+                dep_input.value = add_dependency(dep_input.value, selected_uuid)
 
         self.push_screen(FuzzySearchScreen(self.state.raw_tasks), on_select)
 
@@ -469,120 +428,54 @@ class TaskProApp(App):
 
         self.push_screen(QuickMenuScreen("priority"), handle)
 
-    def action_filter_mode(self) -> None:
-        def handle(result: str | None) -> None:
-            if result == "project":
-                self._open_project_filter()
-            elif result == "tag":
-                self._open_tag_filter()
-
-        self.push_screen(FilterMenuScreen(), handle)
-
-    def _open_project_filter(self) -> None:
-        all_projects = self.state.get_all_projects()
-        if not all_projects:
-            self.notify("No projects found in tasks", severity="warning")
-            return
-        current = self.state.project_filter or all_projects
-        selected = set(current)
-        if self.state.show_unassigned_tasks:
-            selected.add("__unassigned__")
-
-        def on_done(result: set[str] | None) -> None:
-            if result is not None:
-                self.state.set_project_filter(result)
-                self.update_table_view()
-
-        self.push_screen(
-            MultiSelectFilterScreen(
-                title="FILTER BY PROJECT",
-                all_items=sorted(all_projects),
-                selected_items=selected,
-                sentinel_key="__unassigned__",
-                sentinel_label="Unassigned",
-            ),
-            on_done,
-        )
-
-    def _open_tag_filter(self) -> None:
-        all_tags = self.state.get_all_tags()
-        if not all_tags:
-            self.notify("No tags found in tasks", severity="warning")
-            return
-        current = self.state.tag_filter or all_tags
-        selected = set(current)
-        if self.state.show_untagged_tasks:
-            selected.add("__untagged__")
-
-        def on_done(result: set[str] | None) -> None:
-            if result is not None:
-                self.state.set_tag_filter(result)
-                self.update_table_view()
-
-        self.push_screen(
-            MultiSelectFilterScreen(
-                title="FILTER BY TAG",
-                all_items=sorted(all_tags),
-                selected_items=selected,
-                sentinel_key="__untagged__",
-                sentinel_label="Untagged",
-            ),
-            on_done,
-        )
-
     def apply_quick_date(self, date_str: str) -> None:
-        targets = (
-            list(self.state.selected_uuids)
-            if self.state.selected_uuids
-            else [self.state.active_uuid]
-        )
-        failed = []
-        for uid in targets:
-            if uid and uid != "NEW":
-                try:
-                    subprocess.run(
-                        ["task", uid, "modify", f"due:{date_str}"],
-                        check=True,
-                        capture_output=True,
-                    )
-                except subprocess.CalledProcessError:
-                    failed.append(uid)
-        self.refresh_tasks()
-        if failed:
-            self.notify(f"Failed to update {len(failed)} task(s)", severity="warning")
+        self._bulk_modify(f"due:{date_str}")
 
     def apply_quick_prio(self, level: str) -> None:
-        targets = (
-            list(self.state.selected_uuids)
-            if self.state.selected_uuids
-            else [self.state.active_uuid]
-        )
-        failed = []
-        for uid in targets:
-            if uid and uid != "NEW":
+        self._bulk_modify(f"priority:{level}")
+
+    def _bulk_modify(self, modification: str) -> None:
+        targets = self._target_uuids()
+
+        def job() -> list[str]:
+            failed = []
+            for uid in targets:
                 try:
-                    subprocess.run(
-                        ["task", uid, "modify", f"priority:{level}"],
-                        check=True,
-                        capture_output=True,
-                    )
-                except subprocess.CalledProcessError:
+                    commands.modify_task(uid, modification)
+                except commands.TASK_FAILURES:
                     failed.append(uid)
-        self.refresh_tasks()
-        if failed:
-            self.notify(f"Failed to update {len(failed)} task(s)", severity="warning")
+            return failed
+
+        def done(failed: list[str]) -> None:
+            self.refresh_tasks()
+            if failed:
+                self.notify(f"Failed to update {len(failed)} task(s)", severity="warning")
+
+        self._run_blocking(job, done)
 
     # ------------------------------------------------------------------ #
     # Data & table
     # ------------------------------------------------------------------ #
 
     def refresh_tasks(self) -> None:
-        target_uuid = self.state.active_uuid
-        self.state.raw_tasks = load_pending_tasks()
-        self.state.init_filters_if_empty()
-        self.update_table_view()
-        if target_uuid and target_uuid != "NEW":
-            self._move_cursor_to_uuid(target_uuid)
+        errors: list[str] = []
+
+        def job() -> list[dict[str, Any]]:
+            return load_pending_tasks(on_error=errors.append)
+
+        def done(tasks: list[dict[str, Any]]) -> None:
+            if errors:
+                # Keep showing the last good list rather than wiping it
+                self.notify(f"Could not load tasks: {errors[0]}", severity="error")
+                return
+            self.state.raw_tasks = tasks
+            self.state.init_filters_if_empty()
+            self.update_table_view()
+            target_uuid = self.state.active_uuid
+            if target_uuid and target_uuid != "NEW":
+                self._move_cursor_to_uuid(target_uuid)
+
+        self._run_blocking(job, done)
 
     def update_table_view(self) -> None:
         table = self.query_one(DataTable)
@@ -590,20 +483,11 @@ class TaskProApp(App):
         saved_scroll_x, saved_scroll_y = table.scroll_offset
 
         table.clear(columns=True)
-        cols = [
-            ("ID", "id"),
-            ("Proj.", "project"),
-            ("P.", "priority"),
-            ("Due", "due"),
-            ("Tags", "tags"),
-            ("Urg.", "urgency"),
-            ("Desc.", "description"),
-        ]
         sort_idx = self.state.sort_state["index"]
         sort_rev = self.state.sort_state["reverse"]
-        for i, (label, _) in enumerate(cols):
+        for i, (label, key) in enumerate(COLUMNS):
             icon = " 🔽" if i == sort_idx and sort_rev else " 🔼" if i == sort_idx else ""
-            table.add_column(f"{label}{icon}", key=cols[i][1])
+            table.add_column(f"{label}{icon}", key=key)
 
         for t in self.state.get_visible_tasks():
             uuid = t.get("uuid")
@@ -726,42 +610,31 @@ class TaskProApp(App):
         if not self.state.active_uuid:
             return
 
-        dep_raw = self.query_one("#inp_dep").value.strip()
-        dep_val = ",".join(d.strip() for d in dep_raw.split(",") if d.strip())
+        is_new = self.state.active_uuid == "NEW"
+        target = "add" if is_new else self.state.active_uuid
+        save_uuid = None if is_new else self.state.active_uuid
+        fields = build_task_fields(
+            description=self.query_one("#inp_desc").value,
+            project=self.query_one("#inp_proj").value,
+            due=self.query_one("#inp_due").value,
+            tags=self.query_one("#inp_tags").value,
+            depends=self.query_one("#inp_dep").value,
+            priority=self.query_one("#sel_prio").value,
+        )
 
-        target = "add" if self.state.active_uuid == "NEW" else self.state.active_uuid
-        cmd = ["task", target]
-        if self.state.active_uuid != "NEW":
-            cmd.append("modify")
+        def done(result: subprocess.CompletedProcess) -> None:
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                self.query_one("#debug_panel").update(f"❌ ERROR: {error_msg}")
+                self.push_screen(ErrorModalScreen(error_msg))
+            else:
+                self.query_one("#debug_panel").update(f"✅ Saved: {target}")
+                self.set_modify_mode(False)
+                self.refresh_tasks()
+                self.query_one(DataTable).focus()
+                self.notify("Saved!")
 
-        due_val = self.query_one("#inp_due").value.strip()
-        if due_val.isdigit() and len(due_val) == 8:
-            due_val += "T000000"
-
-        prio_widget = self.query_one("#sel_prio")
-        prio_val = prio_widget.value if prio_widget.value != "X" else ""
-
-        cmd.extend([
-            f"description:{self.query_one('#inp_desc').value}",
-            f"project:{self.query_one('#inp_proj').value}",
-            f"due:{due_val}",
-            f"tags:{self.query_one('#inp_tags').value}",
-            f"depends:{dep_val}",
-            f"priority:{prio_val}",
-        ])
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or result.stdout.strip()
-            self.query_one("#debug_panel").update(f"❌ ERROR: {error_msg}")
-            self.push_screen(ErrorModalScreen(error_msg))
-        else:
-            self.query_one("#debug_panel").update(f"✅ Saved: {target}")
-            self.set_modify_mode(False)
-            self.refresh_tasks()
-            self.query_one(DataTable).focus()
-            self.notify("Saved!")
+        self._run_blocking(lambda: commands.save_task(save_uuid, fields), done)
 
     def action_cancel_edit(self) -> None:
         self.set_modify_mode(False)
@@ -770,6 +643,41 @@ class TaskProApp(App):
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
+
+    def _run_blocking(self, job: Callable[[], T], on_done: Callable[[T], None]) -> None:
+        """Run a slow ``task`` CLI job without freezing the UI.
+
+        While the app is running, ``job`` executes in a worker thread and
+        ``on_done(result)`` is called back on the UI thread. Only one job runs
+        at a time; extra requests are rejected so key repeats can't double-apply.
+        Before the app is running (and in unit tests) the job runs inline.
+        ``job`` must not touch widgets and must catch its own failures.
+        """
+        if not self.is_running:
+            on_done(job())
+            return
+        if self._busy:
+            self.notify("Still working on the previous command…", severity="warning")
+            return
+        self._busy = True
+
+        def finish(result: T) -> None:
+            self._busy = False
+            on_done(result)
+
+        def work() -> None:
+            self.call_from_thread(finish, job())
+
+        self.run_worker(work, thread=True, group="task-cli")
+
+    def _target_uuids(self) -> list[str]:
+        """Selected tasks if any, otherwise the active one; never the NEW placeholder."""
+        candidates = (
+            list(self.state.selected_uuids)
+            if self.state.selected_uuids
+            else [self.state.active_uuid]
+        )
+        return [uid for uid in candidates if uid and uid != "NEW"]
 
     def _move_cursor_to_uuid(self, uuid: str) -> None:
         table = self.query_one(DataTable)

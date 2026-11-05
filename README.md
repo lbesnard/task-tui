@@ -41,7 +41,7 @@ The script automatically fetches the latest version, selects the correct wheel, 
 Or pick a specific version from the [Releases page](https://github.com/lbesnard/task-tui/releases) and install it directly:
 
 ```bash
-pip install https://github.com/lbesnard/task-tui/releases/download/v1.0.0/task_tui-1.0.0-py3-none-any.whl
+pip install https://github.com/lbesnard/task-tui/releases/download/vX.Y.Z/task_tui-X.Y.Z-py3-none-any.whl
 ```
 
 ### Via pipx (isolated environment — great for CLI tools)
@@ -104,6 +104,7 @@ pip install -e .
 | :---- | :-------------------------------------------------------- |
 | `t`   | **Quick Date**: Set due date (Today, Tomorrow, EOW, etc.) |
 | `p`   | **Quick Prio**: Set priority (High, Mid, Low, Clear)      |
+| `f`   | **Filter**: Filter the list by project (`p`) or tag (`t`) |
 | `Esc` | Cancel context menu or Edit Mode                          |
 
 ---

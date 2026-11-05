@@ -7,7 +7,8 @@ no real task data is ever written or read from the system.
 import pytest
 import subprocess
 from unittest.mock import Mock, PropertyMock, call, patch
-from task_tui.app import DependsInput, TaskProApp
+from task_tui.app import TaskProApp
+from task_tui.widgets import DependsInput
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +239,7 @@ class TestActionSaveTask:
         mock_subprocess_app.return_value = Mock(
             returncode=1, stdout="", stderr="error"
         )
+        app_with_widgets.push_screen = Mock()
 
         app_with_widgets.action_save_task()
 

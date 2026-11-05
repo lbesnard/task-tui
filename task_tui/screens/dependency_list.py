@@ -1,7 +1,9 @@
 from textual.app import ComposeResult
-from textual.widgets import Static, Label, ListView, ListItem
 from textual.containers import Vertical
 from textual.screen import ModalScreen
+from textual.widgets import Label, ListItem, ListView, Static
+
+from ..utils import format_task_label
 
 
 class DependencyListScreen(ModalScreen):
@@ -24,11 +26,7 @@ class DependencyListScreen(ModalScreen):
         found = False
         for t in self.all_tasks:
             if str(t.get("id")) in dep_set or t.get("uuid") in dep_set:
-                item = ListItem(
-                    Static(
-                        f"{t.get('id')} - {t.get('description')} [dim]({t.get('project', '')})[/dim]"
-                    )
-                )
+                item = ListItem(Static(format_task_label(t)))
                 item.uuid = t.get("uuid")
                 list_view.append(item)
                 found = True

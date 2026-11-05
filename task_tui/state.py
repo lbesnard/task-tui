@@ -3,6 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# (header label, task field) for each table column, in display order
+COLUMNS: list[tuple[str, str]] = [
+    ("ID", "id"),
+    ("Proj.", "project"),
+    ("P.", "priority"),
+    ("Due", "due"),
+    ("Tags", "tags"),
+    ("Urg.", "urgency"),
+    ("Desc.", "description"),
+]
+
 
 @dataclass
 class AppState:
@@ -91,21 +102,17 @@ class AppState:
 
     def get_visible_tasks(self) -> list[dict[str, Any]]:
         """Return the sorted and filtered subset of RawTasks to render."""
-        cols = [
-            ("id", "id"),
-            ("Proj.", "project"),
-            ("P.", "priority"),
-            ("Due", "due"),
-            ("Tags", "tags"),
-            ("Urg.", "urgency"),
-            ("Desc.", "description"),
-        ]
-        sort_key = cols[self.sort_state["index"]][1]
+        sort_key = COLUMNS[self.sort_state["index"]][1]
+
+        # Priority ranks High first by default, so its direction is inverted
+        reverse = self.sort_state["reverse"]
+        if sort_key == "priority":
+            reverse = not reverse
 
         sorted_tasks = sorted(
             self.raw_tasks,
             key=lambda t: self._sort_value(t, sort_key),
-            reverse=True if sort_key == "priority" else self.sort_state["reverse"],
+            reverse=reverse,
         )
 
         if self.is_project_filter_active:
@@ -126,7 +133,7 @@ class AppState:
 
     def _sort_value(self, task: dict[str, Any], sort_key: str) -> Any:
         val = task.get(sort_key, "")
-        if sort_key == "urgency":
+        if sort_key in ("urgency", "id"):
             try:
                 return float(val)
             except (TypeError, ValueError):
