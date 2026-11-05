@@ -47,6 +47,26 @@ def delete_task(uuid: str) -> None:
     )
 
 
+def annotate_task(uuid: str, text: str) -> None:
+    """Add an annotation. ``--`` keeps text like ``due:friday`` literal."""
+    subprocess.run(
+        ["task", uuid, "annotate", "--", text],
+        check=True,
+        capture_output=True,
+        timeout=TASK_TIMEOUT,
+    )
+
+
+def denotate_task(uuid: str, text: str) -> None:
+    """Remove the annotation with exactly this text. Raises one of TASK_FAILURES."""
+    subprocess.run(
+        ["task", "rc.confirmation=off", uuid, "denotate", "--", text],
+        check=True,
+        capture_output=True,
+        timeout=TASK_TIMEOUT,
+    )
+
+
 def modify_task(uuid: str, modification: str) -> None:
     """Apply a single ``attr:value`` modification. Raises one of TASK_FAILURES."""
     subprocess.run(

@@ -16,6 +16,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
   - While editing dependencies, press `/` to search and pick tasks to add to the dependency list.
 - **Dependency Explorer**: Press `v` to open a dedicated modal showing all tasks the current item depends on, with the ability to "jump" directly to them.
 - **Switchable Reports**: Press `R` to switch between your Taskwarrior reports (`next`, `minimal`, `overdue`, or any custom report from your `.taskrc`) without leaving the app. See [Reports](#-reports).
+- **Notes (Annotations)**: Taskwarrior annotations are shown in the side panel; press `a` to add one and `A` to remove one.
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on startup and exit to keep your remote servers up to date.
@@ -98,6 +99,7 @@ pip install -e .
 | `s`     | **Start/Stop**: Toggle active status on a task         |
 | `d`     | **Done**: Mark selected task as completed              |
 | `D`     | **Delete**: Delete selected task(s) after confirmation (`u` undoes) |
+| `a` / `A` | **Notes**: Add an annotation / remove one (shown in the right panel) |
 | `v`     | **View Deps**: Open the Dependency Explorer modal      |
 | `space` | **Select**: Toggle task for batch operations           |
 

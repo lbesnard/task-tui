@@ -45,3 +45,13 @@ def build_task_fields(
         "depends": ",".join(d.strip() for d in depends.split(",") if d.strip()),
         "priority": "" if priority == "X" else priority,
     }
+
+
+def format_annotations(annotations: list[dict] | None) -> str:
+    """Render a task's annotations as one ``YYYY-MM-DD  text`` line each."""
+    lines = []
+    for note in annotations or []:
+        entry = str(note.get("entry", ""))
+        date = f"{entry[:4]}-{entry[4:6]}-{entry[6:8]}" if len(entry) >= 8 else "          "
+        lines.append(f"{date}  {note.get('description', '')}")
+    return "\n".join(lines) if lines else "(none)"

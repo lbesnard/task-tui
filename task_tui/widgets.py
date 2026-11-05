@@ -55,5 +55,7 @@ class TaskEditor(Vertical):
             value="X",
             disabled=True,
         )
+        yield Label("NOTES  (a=add · A=remove)", classes="metadata")
+        yield Static("(none)", id="notes_display")
         yield Label("UUID", classes="metadata")
         yield Static("None", id="uuid_display")

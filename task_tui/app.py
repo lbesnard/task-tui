@@ -19,7 +19,7 @@ from textual.widgets import (
 )
 
 from .config import DEFAULT_CONFIG, load_app_config
-from .editing import add_dependency, build_task_fields
+from .editing import add_dependency, build_task_fields, format_annotations
 from .filters import FilterActionsMixin
 from .models import (
     commands,
@@ -29,6 +29,8 @@ from .models import (
 )
 from .screens import (
     ALL_PENDING,
+    AnnotateScreen,
+    DenotateScreen,
     ConfirmScreen,
     ReportPickerScreen,
     DependencyListScreen,
@@ -88,6 +90,8 @@ class TaskProApp(FilterActionsMixin, App):
         ("toggle_start", "toggle_start", "Start/Stop", True),
         ("mark_done", "mark_done", "Done", True),
         ("delete_task", "delete_task", "Delete", True),
+        ("annotate", "annotate", "Note", True),
+        ("denotate", "denotate", "RmNote", False),
         ("refresh_tasks", "refresh_tasks", "Refresh", True),
         ("switch_report", "switch_report", "Report", True),
         ("cancel_edit", "cancel_edit", "Back", True),
@@ -378,6 +382,7 @@ class TaskProApp(FilterActionsMixin, App):
         for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_dep", "#inp_tags"]:
             self.query_one(field).value = ""
         self.query_one("#uuid_display").update("NEW TASK")
+        self.query_one("#notes_display").update("(none)")
         self.query_one("#inp_desc").focus()
 
     def action_toggle_start(self) -> None:
@@ -471,6 +476,48 @@ class TaskProApp(FilterActionsMixin, App):
         self.push_screen(
             ConfirmScreen(f"🗑  DELETE {len(targets)} TASK(S)?", shown), confirmed
         )
+
+    def action_annotate(self) -> None:
+        uuid = self.state.active_uuid
+        if not uuid or uuid == "NEW":
+            return
+
+        def on_text(text: str | None) -> None:
+            if text:
+                self._annotation_job(lambda: commands.annotate_task(uuid, text), "Note added")
+
+        self.push_screen(AnnotateScreen(), on_text)
+
+    def action_denotate(self) -> None:
+        uuid = self.state.active_uuid
+        task = self.state.get_task_by_uuid(uuid) if uuid and uuid != "NEW" else None
+        notes = (task or {}).get("annotations") or []
+        if not notes:
+            self.notify("This task has no notes", severity="warning")
+            return
+
+        def on_pick(text: str | None) -> None:
+            if text is not None:
+                self._annotation_job(lambda: commands.denotate_task(uuid, text), "Note removed")
+
+        self.push_screen(DenotateScreen(notes), on_pick)
+
+    def _annotation_job(self, call: Callable[[], None], success: str) -> None:
+        def job() -> bool:
+            try:
+                call()
+                return True
+            except commands.TASK_FAILURES:
+                return False
+
+        def done(ok: bool) -> None:
+            if ok:
+                self.refresh_tasks()
+                self.notify(success)
+            else:
+                self.notify("Note update failed", severity="error")
+
+        self._run_blocking(job, done)
 
     def action_toggle_selection(self) -> None:
         uuid = self.state.active_uuid
@@ -674,6 +721,9 @@ class TaskProApp(FilterActionsMixin, App):
         self.query_one("#inp_tags").value = ",".join(task.get("tags") or [])
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends") or []))
         self.query_one("#sel_prio").value = task.get("priority", "X")
+        self.query_one("#notes_display").update(
+            format_annotations(task.get("annotations"))
+        )
         if focus:
             self.set_modify_mode(True)
             self.query_one("#inp_desc").focus()
