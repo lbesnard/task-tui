@@ -54,3 +54,13 @@ class TestEditingHelpers:
 
         assert add_dependency("u1, /", "u2") == "u1, u2"
         assert add_dependency("u1, u2", "u1") == "u1, u2"
+
+
+class TestSortFromReport:
+    def test_mapping(self):
+        from task_tui.state import sort_state_from_report
+
+        assert sort_state_from_report("urgency-") == {"index": 5, "reverse": True}
+        assert sort_state_from_report("project+/,description+") == {"index": 1, "reverse": False}
+        assert sort_state_from_report("entry-") is None
+        assert sort_state_from_report("") is None

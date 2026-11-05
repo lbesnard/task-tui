@@ -21,14 +21,21 @@ from textual.widgets import (
 from .config import DEFAULT_CONFIG, load_app_config
 from .editing import add_dependency, build_task_fields
 from .filters import FilterActionsMixin
-from .models import commands, load_pending_tasks, sync_tasks
+from .models import (
+    commands,
+    list_reports,
+    load_pending_tasks,
+    sync_tasks,
+)
 from .screens import (
+    ALL_PENDING,
+    ReportPickerScreen,
     DependencyListScreen,
     ErrorModalScreen,
     FuzzySearchScreen,
     QuickMenuScreen,
 )
-from .state import COLUMNS, AppState
+from .state import COLUMNS, AppState, sort_state_from_report
 from .utils import format_urgency, get_priority_color, get_project_color
 from .widgets import TaskEditor
 
@@ -80,6 +87,7 @@ class TaskProApp(FilterActionsMixin, App):
         ("toggle_start", "toggle_start", "Start/Stop", True),
         ("mark_done", "mark_done", "Done", True),
         ("refresh_tasks", "refresh_tasks", "Refresh", True),
+        ("switch_report", "switch_report", "Report", True),
         ("cancel_edit", "cancel_edit", "Back", True),
         ("quit", "quit", "Quit", True),
         ("cursor_down", "cursor_down", "Down", False),
@@ -185,7 +193,36 @@ class TaskProApp(FilterActionsMixin, App):
         self._register_dynamic_bindings()
         if not self.config.get("ui", {}).get("show_debug_panel", True):
             self.query_one("#debug_panel").display = False
+        self._init_report()
         self.refresh_tasks()
+
+    def _init_report(self) -> None:
+        """Select the configured ``ui.default_report`` if it exists."""
+        name = self.config.get("ui", {}).get("default_report")
+        if not name:
+            self._update_subtitle()
+            return
+        report = next((r for r in list_reports() if r.name == name), None)
+        if report is None:
+            self.notify(f"Unknown report '{name}' in config", severity="warning")
+        else:
+            self._select_report(report, reload=False)
+        self._update_subtitle()
+
+    def _update_subtitle(self) -> None:
+        report = self.state.report
+        self.sub_title = f"Report: {report.name}" if report else "All pending"
+
+    def _select_report(self, report, reload: bool = True) -> None:
+        self.state.report = report
+        self.state.clear_filters()
+        if report is not None:
+            new_sort = sort_state_from_report(report.sort)
+            if new_sort:
+                self.state.sort_state = new_sort
+        self._update_subtitle()
+        if reload:
+            self.refresh_tasks()
 
     def on_unmount(self) -> None:
         os.system("clear")
@@ -248,6 +285,25 @@ class TaskProApp(FilterActionsMixin, App):
 
     def action_refresh_tasks(self) -> None:
         self.refresh_tasks()
+
+    def action_switch_report(self) -> None:
+        def done(reports) -> None:
+            if not reports:
+                self.notify("No reports found in Taskwarrior config", severity="warning")
+                return
+            current = self.state.report.name if self.state.report else None
+
+            def handle(choice: str | None) -> None:
+                if choice is None:
+                    return
+                if choice == ALL_PENDING:
+                    self._select_report(None)
+                else:
+                    self._select_report(next(r for r in reports if r.name == choice))
+
+            self.push_screen(ReportPickerScreen(reports, current), handle)
+
+        self._run_blocking(list_reports, done)
 
     def action_undo(self) -> None:
         def job() -> tuple[bool, Exception | None]:
@@ -459,9 +515,10 @@ class TaskProApp(FilterActionsMixin, App):
 
     def refresh_tasks(self) -> None:
         errors: list[str] = []
+        report = self.state.report
 
         def job() -> list[dict[str, Any]]:
-            return load_pending_tasks(on_error=errors.append)
+            return load_pending_tasks(on_error=errors.append, report=report)
 
         def done(tasks: list[dict[str, Any]]) -> None:
             if errors:

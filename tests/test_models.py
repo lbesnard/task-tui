@@ -158,3 +158,45 @@ class TestSaveTaskCommand:
 
         assert result.returncode == 1
         assert "timed out" in result.stderr
+
+
+class TestReports:
+    def test_list_reports_parses_show_output(self, mock_subprocess):
+        from task_tui.models.task import Report, list_reports
+
+        mock_subprocess.return_value.stdout = (
+            "report.next.columns=id,description\n"
+            "report.next.filter=+PENDING -WAITING limit:page\n"
+            "report.next.sort=urgency-\n"
+            "report.burndown.description=x\n"
+            "report.all.columns=id\n"
+            "report.all.sort=entry-\n"
+            "default.command=next\n"
+        )
+        assert list_reports() == [
+            Report("all", "", "entry-"),
+            Report("next", "+PENDING -WAITING limit:page", "urgency-"),
+        ]
+
+    def test_list_reports_failure(self, mock_subprocess):
+        from task_tui.models.task import list_reports
+
+        mock_subprocess.side_effect = subprocess.CalledProcessError(1, "task")
+        assert list_reports() == []
+
+    def test_filter_args_drop_limit_and_keep_parens(self):
+        from task_tui.models.task import report_filter_args
+
+        assert report_filter_args("+PENDING -WAITING limit:page") == ["+PENDING", "-WAITING"]
+        assert report_filter_args("status:pending and (due:today or +today)") == [
+            "status:pending", "and", "(due:today", "or", "+today)",
+        ]
+
+    def test_load_with_report_uses_its_filter(self, mock_subprocess):
+        from task_tui.models.task import Report
+
+        mock_subprocess.return_value.stdout = "[]"
+        load_pending_tasks(report=Report("minimal", "+PENDING -WAITING limit:page"))
+        assert mock_subprocess.call_args.args[0] == [
+            "task", "+PENDING", "-WAITING", "export", "rc.json.array=on",
+        ]

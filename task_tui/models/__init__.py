@@ -1,3 +1,13 @@
-from .task import load_pending_tasks, sync_tasks
+from .task import (
+    Report,
+    list_reports,
+    load_pending_tasks,
+    sync_tasks,
+)
 
-__all__ = ["load_pending_tasks", "sync_tasks"]
+__all__ = [
+    "Report",
+    "list_reports",
+    "load_pending_tasks",
+    "sync_tasks",
+]

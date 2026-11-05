@@ -15,6 +15,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
   - Press `/` to search all pending tasks.
   - While editing dependencies, press `/` to search and pick tasks to add to the dependency list.
 - **Dependency Explorer**: Press `v` to open a dedicated modal showing all tasks the current item depends on, with the ability to "jump" directly to them.
+- **Switchable Reports**: Press `R` to switch between your Taskwarrior reports (`next`, `minimal`, `overdue`, or any custom report from your `.taskrc`) without leaving the app. See [Reports](#-reports).
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on startup and exit to keep your remote servers up to date.
@@ -83,6 +84,7 @@ pip install -e .
 | `g` / `G` | Jump to Top / Bottom of list   |
 | `/`       | Open Fuzzy Search              |
 | `r`       | Refresh task list              |
+| `R`       | Switch Taskwarrior report      |
 | `u`       | Undo last Taskwarrior action   |
 | `q`       | Quit and Sync                  |
 
@@ -109,6 +111,20 @@ pip install -e .
 
 ---
 
+## 📊 Reports
+
+Taskwarrior [reports](https://taskwarrior.org/docs/report/) are named views (`next`, `minimal`, `list`, `overdue`, ...) defined in your `.taskrc`. Press `R` to pick one; the task list reloads using that report's filter. The active report is shown in the header (`Report: overdue`).
+
+- Choose **all pending** in the picker to return to the default view (every pending task).
+- The picker lists every report that Taskwarrior knows about (`task show report.`), including your custom ones.
+- The report's **filter** is applied. Its **sort** is mapped onto the table's sort using the first key only (e.g. `urgency-` sorts by urgency, descending), when that key is a displayed column. You can still re-sort by clicking a header.
+- `limit:` terms such as `limit:page` are ignored, since the list scrolls.
+- Project/tag filters (`f`) are reset when you switch report.
+- Reports that include non-pending tasks (e.g. `completed`, `all`) work for browsing, but actions such as Done are meant for pending tasks.
+- Set a report to open on startup with `ui.default_report` in the config file (see below).
+
+---
+
 ## 🛠 Configuration
 
 Task-TUI reads directly from your `.taskrc`, and now also supports an optional app config file.
@@ -128,9 +144,12 @@ You can customize keyboard shortcuts and future UI settings there. Example:
     "save_task": "x"
   },
   "ui": {
-    "show_debug_panel": true
+    "show_debug_panel": true,
+    "default_report": "next"
   }
 }
 ```
+
+`default_report` is optional: leave it `null` to start with all pending tasks. The report switcher key is `shortcuts.switch_report` (default `R`).
 
 If you have a `taskserver` configured, Task-TUI will attempt to sync your changes automatically when you close the application.
