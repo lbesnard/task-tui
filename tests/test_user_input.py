@@ -46,6 +46,7 @@ def app_with_widgets(sample_app):
         "#inp_desc": Mock(value="Test task"),
         "#inp_proj": Mock(value="TestProject"),
         "#inp_due": Mock(value=""),
+        "#inp_wait": Mock(value=""),
         "#inp_dep": Mock(value=""),
         "#inp_tags": Mock(value="tag1"),
         "#sel_prio": Mock(value="H"),

@@ -39,7 +39,7 @@ from .screens import (
     QuickMenuScreen,
 )
 from .state import COLUMNS, AppState, sort_state_from_report
-from .utils import format_urgency, get_priority_color, get_project_color
+from .utils import format_urgency, get_priority_color, get_project_color, is_waiting
 from .widgets import TaskEditor
 
 T = TypeVar("T")
@@ -83,6 +83,7 @@ class TaskProApp(FilterActionsMixin, App):
         ("toggle_selection", "toggle_selection", "Select", True),
         ("date_mode", "date_mode", "SetDate", True),
         ("prio_mode", "prio_mode", "SetPrio", True),
+        ("wait_mode", "wait_mode", "Snooze", True),
         ("filter_mode", "filter_mode", "Filter", True),
         ("edit_mode", "edit_mode", "Modify/Edit", True),
         ("new_task", "new_task", "New", True),
@@ -379,7 +380,7 @@ class TaskProApp(FilterActionsMixin, App):
     def action_new_task(self) -> None:
         self.set_modify_mode(True)
         self.state.active_uuid = "NEW"
-        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_dep", "#inp_tags"]:
+        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_wait", "#inp_dep", "#inp_tags"]:
             self.query_one(field).value = ""
         self.query_one("#uuid_display").update("NEW TASK")
         self.query_one("#notes_display").update("(none)")
@@ -573,6 +574,15 @@ class TaskProApp(FilterActionsMixin, App):
 
         self.push_screen(QuickMenuScreen("priority"), handle)
 
+    def action_wait_mode(self) -> None:
+        def handle(result: str | None) -> None:
+            if result is not None:
+                self._bulk_modify(f"wait:{result}")
+                if result:
+                    self.notify("Snoozed. Find it again with R → waiting")
+
+        self.push_screen(QuickMenuScreen("wait"), handle)
+
     def apply_quick_date(self, date_str: str) -> None:
         self._bulk_modify(f"due:{date_str}")
 
@@ -643,7 +653,7 @@ class TaskProApp(FilterActionsMixin, App):
 
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.state.selected_uuids else is_active
-            dep_icon = "🔗 " if t.get("depends") else ""
+            dep_icon = ("🔗 " if t.get("depends") else "") + ("💤 " if is_waiting(t) else "")
 
             table.add_row(
                 f"{prefix}{t.get('id')}",
@@ -718,6 +728,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.query_one("#inp_proj").value = task.get("project", "")
         due_date = (task.get("due", "") or "").replace("Z", "")[:8]
         self.query_one("#inp_due").value = due_date
+        self.query_one("#inp_wait").value = (task.get("wait", "") or "").replace("Z", "")[:8]
         self.query_one("#inp_tags").value = ",".join(task.get("tags") or [])
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends") or []))
         self.query_one("#sel_prio").value = task.get("priority", "X")
@@ -766,6 +777,7 @@ class TaskProApp(FilterActionsMixin, App):
             description=self.query_one("#inp_desc").value,
             project=self.query_one("#inp_proj").value,
             due=self.query_one("#inp_due").value,
+            wait=self.query_one("#inp_wait").value,
             tags=self.query_one("#inp_tags").value,
             depends=self.query_one("#inp_dep").value,
             priority=self.query_one("#sel_prio").value,

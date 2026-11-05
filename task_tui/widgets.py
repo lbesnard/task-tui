@@ -44,6 +44,8 @@ class TaskEditor(Vertical):
         yield Input(id="inp_proj", disabled=True)
         yield Label("DUE (YYYYMMDD or e.g. 'tomorrow', 'eo[d,m,y]')", classes="metadata")
         yield Input(id="inp_due", disabled=True)
+        yield Label("WAIT / SNOOZE UNTIL (same formats as due; empty = visible)", classes="metadata")
+        yield Input(id="inp_wait", disabled=True)
         yield Label("DEPENDS ON (/ to pick tasks)", classes="metadata")
         yield DependsInput(id="inp_dep", disabled=True)
         yield Label("TAGS", classes="metadata")

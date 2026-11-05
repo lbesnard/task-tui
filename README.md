@@ -17,6 +17,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Dependency Explorer**: Press `v` to open a dedicated modal showing all tasks the current item depends on, with the ability to "jump" directly to them.
 - **Switchable Reports**: Press `R` to switch between your Taskwarrior reports (`next`, `minimal`, `overdue`, or any custom report from your `.taskrc`) without leaving the app. See [Reports](#-reports).
 - **Notes (Annotations)**: Taskwarrior annotations are shown in the side panel; press `a` to add one and `A` to remove one.
+- **Snooze (Wait)**: Press `w` to hide a task until later, or set the *Wait* field in the editor. Snoozed tasks leave the default list until their wait date; bring them back with `R` → `waiting`, where they are marked 💤 and can be un-snoozed (`w` → `x`).
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on startup and exit to keep your remote servers up to date.
@@ -109,6 +110,7 @@ pip install -e .
 | :---- | :-------------------------------------------------------- |
 | `t`   | **Quick Date**: Set due date (Today, Tomorrow, EOW, etc.) |
 | `p`   | **Quick Prio**: Set priority (High, Mid, Low, Clear)      |
+| `w`   | **Snooze**: Hide a task until tomorrow, next Monday, +1 week or end of month (`wait`) |
 | `f`   | **Filter**: Filter the list by project (`p`) or tag (`t`) |
 | `Esc` | Cancel context menu or Edit Mode                          |
 

@@ -32,6 +32,7 @@ def build_task_fields(
     tags: str,
     depends: str,
     priority: str,
+    wait: str = "",
 ) -> dict[str, str]:
     """Map raw edit-panel values to ``attr -> value`` for ``task add/modify``.
 
@@ -44,6 +45,7 @@ def build_task_fields(
         "tags": tags,
         "depends": ",".join(d.strip() for d in depends.split(",") if d.strip()),
         "priority": "" if priority == "X" else priority,
+        "wait": normalize_due(wait),
     }
 
 
