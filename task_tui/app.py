@@ -101,6 +101,7 @@ class TaskProApp(FilterActionsMixin, App):
         ("new_task", "new_task", "New", True),
         ("save_task", "save_task", "Save", True),
         ("toggle_start", "toggle_start", "Start/Stop", True),
+        ("toggle_next", "toggle_next", "Pin/Unpin", True),
         ("mark_done", "mark_done", "Done", True),
         ("delete_task", "delete_task", "Delete", True),
         ("edit_external", "edit_external", "$EDITOR", True),
@@ -455,6 +456,37 @@ class TaskProApp(FilterActionsMixin, App):
 
             self._run_blocking(job, done)
 
+    def action_toggle_next(self) -> None:
+        """Pin to the top: add the +next tag (a big urgency boost), or remove it.
+
+        If every target already has the tag it is removed, otherwise it is
+        added to all of them.
+        """
+        targets = self._target_uuids()
+        if not targets:
+            return
+        tasks = [self.state.get_task_by_uuid(uid) or {} for uid in targets]
+        unpin = all("next" in (t.get("tags") or []) for t in tasks)
+        modification = "-next" if unpin else "+next"
+
+        def job() -> list[str]:
+            failed = []
+            for uid in targets:
+                try:
+                    commands.modify_task(uid, modification)
+                except commands.TASK_FAILURES:
+                    failed.append(uid)
+            return failed
+
+        def done(failed: list[str]) -> None:
+            self.refresh_tasks()
+            if failed:
+                self.notify(f"Failed to update {len(failed)} task(s)", severity="warning")
+            else:
+                self.notify("Unpinned" if unpin else "Pinned to top (+next)")
+
+        self._run_blocking(job, done)
+
     def action_mark_done(self) -> None:
         targets = self._target_uuids()
         if not targets:
@@ -732,6 +764,7 @@ class TaskProApp(FilterActionsMixin, App):
         if key == "description":
             icons = (
                 ("🔗 " if task.get("depends") else "")
+                + ("📌 " if "next" in (task.get("tags") or []) else "")
                 + ("🔁 " if task.get("recur") else "")
                 + ("💤 " if is_waiting(task) else "")
             )
