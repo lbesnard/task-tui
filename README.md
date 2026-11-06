@@ -16,7 +16,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
   - While editing dependencies, press `/` to search and pick tasks to add to the dependency list.
 - **Dependency Explorer**: Press `v` to open a dedicated modal showing all tasks the current item depends on, with the ability to "jump" directly to them.
 - **Switchable Reports**: Press `R` to switch between your Taskwarrior reports (`next`, `minimal`, `overdue`, or any custom report from your `.taskrc`) without leaving the app. See [Reports](#-reports).
-- **Notes (Annotations)**: Taskwarrior annotations are shown in the side panel; press `a` to add one and `A` to remove one.
+- **Notes (Annotations)**: Taskwarrior annotations appear in a *Notes* field in the side panel, one per line. In edit mode just Tab to it, type, and save with the rest of the task. Taskwarrior can't edit a note in place, so changing a line removes the old note and adds a new one (with a new date); untouched lines keep theirs. Outside edit mode, `a` adds a note and `A` removes one.
 - **Snooze (Wait)**: Press `w` to hide a task until later, or set the *Wait* field in the editor. Snoozed tasks leave the default list until their wait date; bring them back with `R` → `waiting`, where they are marked 💤 and can be un-snoozed (`w` → `x`).
 - **Recurring Tasks**: Tick *Recurring* in the editor to pick a recurrence (daily, weekdays, weekly, monthly, ..., or a custom value like `3d`). Recurring tasks are marked 🔁. Taskwarrior requires a due date, and a recurrence can be changed but not removed once a task is recurring.
 - **Full Edit in your `$EDITOR`**: Press `e` to open the task with `task edit` (all fields, UDAs, annotations); the TUI resumes and reloads when you close the editor. Set `ui.editor` to override `$VISUAL`/`$EDITOR`.
@@ -107,7 +107,7 @@ pip install -e .
 | `d`     | **Done**: Mark selected task as completed              |
 | `D`     | **Delete**: Delete selected task(s) after confirmation (`u` undoes) |
 | `e`     | **Edit in $EDITOR**: open the full task (`task edit`), return to the TUI when done |
-| `a` / `A` | **Notes**: Add an annotation / remove one (shown in the right panel) |
+| `a` / `A` | **Notes** (view mode only; in edit mode use the Notes field): add / remove an annotation |
 | `v`     | **View Deps**: Open the Dependency Explorer modal      |
 | `space` | **Select**: Toggle task for batch operations           |
 

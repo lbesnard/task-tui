@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Checkbox, Input, Label, Select, Static
+from textual.widgets import Checkbox, Input, Label, Select, Static, TextArea
 
 from .editing import DEFAULT_RECUR, RECUR_PRESETS
 
@@ -72,7 +72,7 @@ class TaskEditor(Vertical):
             value="X",
             disabled=True,
         )
-        yield Label("NOTES  (a=add · A=remove)", classes="metadata")
-        yield Static("(none)", id="notes_display")
+        yield Label("NOTES  (one per line; a/A in view mode)", classes="metadata")
+        yield TextArea(id="txt_notes", disabled=True, soft_wrap=True)
         yield Label("UUID", classes="metadata")
         yield Static("None", id="uuid_display")

@@ -24,7 +24,8 @@ from .editing import (
     CUSTOM_RECUR,
     add_dependency,
     build_task_fields,
-    format_annotations,
+    annotation_lines,
+    diff_annotations,
     resolve_recur,
     split_recur,
 )
@@ -82,6 +83,7 @@ class TaskProApp(FilterActionsMixin, App):
     .metadata { color: #888888; text-style: bold; margin-top: 1; }
     Input, Select, TextArea { border: tall $primary; margin-bottom: 0; }
 
+    #txt_notes { height: 6; }
     #context_bar { background: $accent; color: white; content-align: center middle; text-style: bold; display: none; height: 1; width: 100%; padding: 0 1; }
     .visible { display: block !important; }
     """
@@ -425,7 +427,7 @@ class TaskProApp(FilterActionsMixin, App):
             self.query_one(field).value = ""
         self._set_recur_widgets("")
         self.query_one("#uuid_display").update("NEW TASK")
-        self.query_one("#notes_display").update("(none)")
+        self._set_notes("")
         self.query_one("#inp_desc").focus()
 
     def action_toggle_start(self) -> None:
@@ -786,6 +788,18 @@ class TaskProApp(FilterActionsMixin, App):
         if self.is_modifying:
             self.is_dirty = True
 
+    def _set_notes(self, text: str) -> None:
+        self._notes_baseline = text
+        self.query_one("#txt_notes").text = text
+
+    def on_text_area_changed(self, event) -> None:
+        # Loading a task also fires Changed; only a real edit makes it dirty
+        if self.is_modifying and event.text_area.text != getattr(self, "_notes_baseline", ""):
+            self.is_dirty = True
+            self.query_one("#mode_indicator").update(
+                "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
+            )
+
     def _set_recur_widgets(self, recur: str | None) -> None:
         enabled, preset, custom = split_recur(recur)
         self.query_one("#chk_recur").value = enabled
@@ -820,9 +834,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends") or []))
         self.query_one("#sel_prio").value = task.get("priority", "X")
         self._set_recur_widgets(task.get("recur", ""))
-        self.query_one("#notes_display").update(
-            format_annotations(task.get("annotations"))
-        )
+        self._set_notes(annotation_lines(task.get("annotations")))
         if focus:
             self.set_modify_mode(True)
             self.query_one("#inp_desc").focus()
@@ -901,7 +913,26 @@ class TaskProApp(FilterActionsMixin, App):
                 self.query_one(DataTable).focus()
                 self.notify("Saved!")
 
-        self._run_blocking(lambda: commands.save_task(save_uuid, fields, rc_overrides), done)
+        to_remove, to_add = diff_annotations(
+            (task or {}).get("annotations"), self.query_one("#txt_notes").text
+        )
+
+        def job() -> subprocess.CompletedProcess:
+            result = commands.save_task(save_uuid, fields, rc_overrides)
+            if result.returncode != 0 or not (to_remove or to_add):
+                return result
+            uuid = save_uuid or commands.latest_uuid()
+            try:
+                if uuid is None:
+                    raise subprocess.CalledProcessError(1, "task", stderr="new task not found")
+                commands.apply_note_changes(uuid, to_remove, to_add)
+            except commands.TASK_FAILURES:
+                return subprocess.CompletedProcess(
+                    result.args, 1, "", "Task saved, but updating its notes failed."
+                )
+            return result
+
+        self._run_blocking(job, done)
 
     def action_cancel_edit(self) -> None:
         self.set_modify_mode(False)

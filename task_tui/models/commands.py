@@ -69,6 +69,30 @@ def denotate_task(uuid: str, text: str) -> None:
     )
 
 
+def latest_uuid() -> str | None:
+    """UUID of the most recently added task, or None if it cannot be found."""
+    try:
+        res = subprocess.run(
+            ["task", "rc.verbose=nothing", "+LATEST", "_uuids"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=TASK_TIMEOUT,
+        )
+    except (*TASK_FAILURES, OSError):
+        return None
+    uuids = res.stdout.split()
+    return uuids[0] if uuids else None
+
+
+def apply_note_changes(uuid: str, to_remove: Sequence[str], to_add: Sequence[str]) -> None:
+    """Denotate then annotate. Raises one of TASK_FAILURES on the first failure."""
+    for text in to_remove:
+        denotate_task(uuid, text)
+    for text in to_add:
+        annotate_task(uuid, text)
+
+
 def edit_in_editor(uuid: str, editor: str | None = None) -> int:
     """Run ``task <uuid> edit`` attached to the terminal; returns its exit code.
 

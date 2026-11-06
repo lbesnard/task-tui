@@ -90,11 +90,52 @@ def build_task_fields(
     return fields
 
 
-def format_annotations(annotations: list[dict] | None) -> str:
-    """Render a task's annotations as one ``YYYY-MM-DD  text`` line each."""
-    lines = []
+def _flat(text: str) -> str:
+    """Collapse whitespace/newlines so a multi-line note fits on one line."""
+    return " ".join(str(text).split())
+
+
+def annotation_lines(annotations: list[dict] | None) -> str:
+    """Notes as editable text: one note per line, oldest first."""
+    return "\n".join(_flat(n.get("description", "")) for n in annotations or [])
+
+
+def diff_annotations(
+    annotations: list[dict] | None, edited: str
+) -> tuple[list[str], list[str]]:
+    """Work out which notes to remove and add after the notes field was edited.
+
+    Taskwarrior cannot edit a note in place, so a changed line is a removal of
+    the old text plus an addition of the new one. Unchanged lines are left
+    alone, which keeps their original timestamps.
+
+    Returns ``(to_remove, to_add)``. ``to_remove`` holds the notes' original
+    stored text (needed to denotate multi-line notes); ``to_add`` holds new text.
+    """
+    originals: dict[str, list[str]] = {}
     for note in annotations or []:
-        entry = str(note.get("entry", ""))
-        date = f"{entry[:4]}-{entry[4:6]}-{entry[6:8]}" if len(entry) >= 8 else "          "
-        lines.append(f"{date}  {note.get('description', '')}")
-    return "\n".join(lines) if lines else "(none)"
+        text = note.get("description", "")
+        originals.setdefault(_flat(text), []).append(text)
+
+    wanted: dict[str, int] = {}
+    order: list[str] = []
+    for line in edited.splitlines():
+        line = _flat(line)
+        if line:
+            wanted[line] = wanted.get(line, 0) + 1
+            order.append(line)
+
+    to_remove: list[str] = []
+    for flat, texts in originals.items():
+        surplus = len(texts) - wanted.get(flat, 0)
+        if surplus > 0:
+            to_remove.extend(texts[:surplus])
+
+    to_add: list[str] = []
+    for line in order:
+        have = len(originals.get(line, []))
+        if have > 0:
+            originals[line] = originals[line][1:]
+        else:
+            to_add.append(line)
+    return to_remove, to_add

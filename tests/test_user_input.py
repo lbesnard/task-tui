@@ -47,6 +47,7 @@ def app_with_widgets(sample_app):
         "#inp_proj": Mock(value="TestProject"),
         "#inp_due": Mock(value=""),
         "#inp_wait": Mock(value=""),
+        "#txt_notes": Mock(text=""),
         "#chk_recur": Mock(value=False),
         "#sel_recur": Mock(value="weekly"),
         "#inp_recur": Mock(value=""),
