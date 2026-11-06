@@ -22,6 +22,7 @@ A modern, high-performance Terminal User Interface (TUI) for [Taskwarrior](https
 - **Full Edit in your `$EDITOR`**: Press `e` to open the task with `task edit` (all fields, UDAs, annotations); the TUI resumes and reloads when you close the editor. Set `ui.editor` to override `$VISUAL`/`$EDITOR`.
 - **Overviews**: Press `V` for Taskwarrior's `stats`, `summary`, `calendar`, `burndown`, `history`, `projects` and `tags` reports without leaving the app.
 - **Configurable Columns**: Choose which columns the task table shows (and their order) with `ui.columns`, including extras such as `wait`, `recur`, `entry`, `annotations` and `depends`. See [Configuration](#-configuration).
+- **Pin to Top**: Press `N` to toggle the `next` tag on the selected task(s). Taskwarrior gives `+next` a large urgency boost, so pinned tasks float to the top of urgency-sorted lists.
 - **Contextual Quick-Actions**: Rapidly set Due Dates (Today, Tomorrow, End of Week/Month) or Priority levels without entering full edit mode.
 - **Visual Priority**: Priority levels are color-coded (High = Red, Medium = Yellow, Low = Green).
 - **Auto-Sync**: Automatically runs `task sync` on exit to keep your remote servers up to date, and `Y` syncs on demand.
@@ -104,6 +105,7 @@ pip install -e .
 | `n`     | **New**: Create a new task                             |
 | `x`     | **Save**: Save changes (works while focused in inputs) |
 | `s`     | **Start/Stop**: Toggle active status on a task         |
+| `N`     | **Pin/Unpin**: Toggle the `+next` tag, which boosts urgency (pinned tasks show 📌) |
 | `d`     | **Done**: Mark selected task as completed              |
 | `D`     | **Delete**: Delete selected task(s) after confirmation (`u` undoes) |
 | `e`     | **Edit in $EDITOR**: open the full task (`task edit`), return to the TUI when done |
