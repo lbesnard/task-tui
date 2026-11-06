@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Input, Label, Select, Static
+from textual.widgets import Checkbox, Input, Label, Select, Static, TextArea
+
+from .editing import DEFAULT_RECUR, RECUR_PRESETS
 
 
 class DependsInput(Input):
@@ -44,6 +46,21 @@ class TaskEditor(Vertical):
         yield Input(id="inp_proj", disabled=True)
         yield Label("DUE (YYYYMMDD or e.g. 'tomorrow', 'eo[d,m,y]')", classes="metadata")
         yield Input(id="inp_due", disabled=True)
+        yield Label("WAIT / SNOOZE UNTIL (same formats as due; empty = visible)", classes="metadata")
+        yield Input(id="inp_wait", disabled=True)
+        yield Checkbox("Recurring (needs a due date)", id="chk_recur", disabled=True)
+        yield Select(
+            [(label, value) for label, value in RECUR_PRESETS],
+            id="sel_recur",
+            value=DEFAULT_RECUR,
+            allow_blank=False,
+            disabled=True,
+        )
+        yield Input(
+            id="inp_recur",
+            placeholder="e.g. 3d, 2weeks, 10th, weekly",
+            disabled=True,
+        )
         yield Label("DEPENDS ON (/ to pick tasks)", classes="metadata")
         yield DependsInput(id="inp_dep", disabled=True)
         yield Label("TAGS", classes="metadata")
@@ -55,5 +72,7 @@ class TaskEditor(Vertical):
             value="X",
             disabled=True,
         )
+        yield Label("NOTES  (one per line; a/A in view mode)", classes="metadata")
+        yield TextArea(id="txt_notes", disabled=True, soft_wrap=True)
         yield Label("UUID", classes="metadata")
         yield Static("None", id="uuid_display")

@@ -3,6 +3,8 @@ import os
 from copy import deepcopy
 from pathlib import Path
 
+from .columns import DEFAULT_COLUMNS, normalize_columns
+
 
 DEFAULT_CONFIG = {
     "shortcuts": {
@@ -13,13 +15,20 @@ DEFAULT_CONFIG = {
         "toggle_selection": "space",
         "date_mode": "t",
         "prio_mode": "p",
+        "wait_mode": "w",
         "filter_mode": "f",
         "edit_mode": "i",
         "new_task": "n",
         "save_task": "x",
         "toggle_start": "s",
         "mark_done": "d",
+        "delete_task": "D",
+        "edit_external": "e",
+        "annotate": "a",
+        "denotate": "A",
         "refresh_tasks": "r",
+        "sync": "Y",
+        "info_views": "V",
         "switch_report": "R",
         "cancel_edit": "ctrl+z",
         "quit": "q",
@@ -30,7 +39,7 @@ DEFAULT_CONFIG = {
         "scroll_top": "g",
         "scroll_bottom": "G",
     },
-    "ui": {"show_debug_panel": True, "default_report": None},
+    "ui": {"show_debug_panel": True, "default_report": None, "editor": None, "columns": list(DEFAULT_COLUMNS)},
 }
 
 
@@ -41,13 +50,20 @@ VALIDATED_SHORTCUT_KEYS = [
     "toggle_selection",
     "date_mode",
     "prio_mode",
+    "wait_mode",
     "filter_mode",
     "edit_mode",
     "new_task",
     "save_task",
     "toggle_start",
     "mark_done",
+    "delete_task",
+    "edit_external",
+    "annotate",
+    "denotate",
     "refresh_tasks",
+    "sync",
+    "info_views",
     "switch_report",
     "cancel_edit",
     "quit",
@@ -115,6 +131,8 @@ def _normalize_config(config: dict) -> dict:
         dep_search = ["/"]
     shortcuts["dependency_search"] = dep_search
     normalized["shortcuts"] = shortcuts
+    ui = normalized.setdefault("ui", {})
+    ui["columns"] = normalize_columns(ui.get("columns"))
     return normalized
 
 

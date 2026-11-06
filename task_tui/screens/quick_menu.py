@@ -13,6 +13,8 @@ class QuickMenuScreen(ModalScreen):
       when used as a date picker.
     - A priority letter (``"H"``, ``"M"``, ``"L"``, ``""``) when used as a
       priority picker.
+    - A wait value (``"tomorrow"``, ``"monday"``, ``"1w"``, ``"eom"``, ``""`` to
+      clear) when used as a snooze picker.
     - ``"end_of"`` to signal the caller should push the end-of submenu.
     - ``None`` on cancel.
     """
@@ -25,6 +27,7 @@ class QuickMenuScreen(ModalScreen):
         text = {
             "main": "📅 SET DUE: [[n]] Today | [[t]] Tomorrow | [[e]] End of... | [[Esc]] Cancel",
             "end_of": "📅 END OF: [[w]] Week | [[m]] Month | [[y]] Year | [[Esc]] Back",
+            "wait": "💤 SNOOZE: [[t]] Tomorrow | [[m]] Next Monday | [[w]] +1 week | [[e]] End of month | [[x]] Clear | [[Esc]] Cancel",
             "priority": "⚡ SET PRIO: [[h]] High | [[m]] Mid | [[l]] Low | [[x]] Clear | [[Esc]] Cancel",
         }.get(self.menu_type, "")
         yield Static(text, id="context_bar", classes="visible")
@@ -52,6 +55,11 @@ class QuickMenuScreen(ModalScreen):
                 self.dismiss("eom")
             elif key == "y":
                 self.dismiss("eoy")
+
+        elif self.menu_type == "wait":
+            wait_values = {"t": "tomorrow", "m": "monday", "w": "1w", "e": "eom", "x": ""}
+            if key in wait_values:
+                self.dismiss(wait_values[key])
 
         elif self.menu_type == "priority":
             if key == "h":

@@ -6,8 +6,10 @@ helpers that report success/failure treat a timeout like any other failure.
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from .task import TASK_TIMEOUT
 
@@ -37,6 +39,77 @@ def mark_done(uuid: str) -> None:
     subprocess.run(["task", uuid, "done"], check=True, timeout=TASK_TIMEOUT)
 
 
+def delete_task(uuid: str) -> None:
+    """Delete a task without the interactive prompt. Raises one of TASK_FAILURES."""
+    subprocess.run(
+        ["task", "rc.confirmation=off", uuid, "delete"],
+        check=True,
+        capture_output=True,
+        timeout=TASK_TIMEOUT,
+    )
+
+
+def annotate_task(uuid: str, text: str) -> None:
+    """Add an annotation. ``--`` keeps text like ``due:friday`` literal."""
+    subprocess.run(
+        ["task", uuid, "annotate", "--", text],
+        check=True,
+        capture_output=True,
+        timeout=TASK_TIMEOUT,
+    )
+
+
+def denotate_task(uuid: str, text: str) -> None:
+    """Remove the annotation with exactly this text. Raises one of TASK_FAILURES."""
+    subprocess.run(
+        ["task", "rc.confirmation=off", uuid, "denotate", "--", text],
+        check=True,
+        capture_output=True,
+        timeout=TASK_TIMEOUT,
+    )
+
+
+def latest_uuid() -> str | None:
+    """UUID of the most recently added task, or None if it cannot be found."""
+    try:
+        res = subprocess.run(
+            ["task", "rc.verbose=nothing", "+LATEST", "_uuids"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=TASK_TIMEOUT,
+        )
+    except (*TASK_FAILURES, OSError):
+        return None
+    uuids = res.stdout.split()
+    return uuids[0] if uuids else None
+
+
+def apply_note_changes(uuid: str, to_remove: Sequence[str], to_add: Sequence[str]) -> None:
+    """Denotate then annotate. Raises one of TASK_FAILURES on the first failure."""
+    for text in to_remove:
+        denotate_task(uuid, text)
+    for text in to_add:
+        annotate_task(uuid, text)
+
+
+def edit_in_editor(uuid: str, editor: str | None = None) -> int:
+    """Run ``task <uuid> edit`` attached to the terminal; returns its exit code.
+
+    ``editor`` overrides ``$VISUAL``/``$EDITOR`` for this call only. There is
+    deliberately no timeout: the user is typing in the editor. The caller must
+    hand the terminal over first (e.g. ``App.suspend``).
+    """
+    env = os.environ.copy()
+    if editor:
+        env["VISUAL"] = editor
+        env["EDITOR"] = editor
+    try:
+        return subprocess.run(["task", uuid, "edit"], env=env).returncode
+    except OSError:
+        return 1
+
+
 def modify_task(uuid: str, modification: str) -> None:
     """Apply a single ``attr:value`` modification. Raises one of TASK_FAILURES."""
     subprocess.run(
@@ -48,14 +121,17 @@ def modify_task(uuid: str, modification: str) -> None:
 
 
 def save_task(
-    uuid: str | None, fields: Mapping[str, str]
+    uuid: str | None,
+    fields: Mapping[str, str],
+    rc_overrides: Sequence[str] = (),
 ) -> subprocess.CompletedProcess:
     """Add a new task (uuid=None) or modify an existing one with ``fields``.
 
+    ``rc_overrides`` are ``rc.name=value`` settings placed before the command.
     Never raises on failure: a non-zero returncode and the error text in
     stderr are returned instead, including for timeouts.
     """
-    cmd = ["task", uuid or "add"]
+    cmd = ["task", *rc_overrides, uuid or "add"]
     if uuid:
         cmd.append("modify")
     cmd.extend(f"{name}:{value}" for name, value in fields.items())
@@ -66,3 +142,29 @@ def save_task(
         return subprocess.CompletedProcess(
             cmd, 1, "", f"task timed out after {TASK_TIMEOUT}s"
         )
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def run_info_view(name: str, width: int = 100) -> str:
+    """Return the plain-text output of a Taskwarrior report such as ``stats``.
+
+    Colors are disabled and any stray escape codes stripped so the text can be
+    shown as-is. Failures are returned as readable text, never raised.
+    """
+    try:
+        res = subprocess.run(
+            ["task", "rc.color=off", f"rc.defaultwidth={width}", "rc.detection=off", name],
+            capture_output=True,
+            text=True,
+            timeout=TASK_TIMEOUT,
+        )
+    except TASK_FAILURES as e:
+        return f"Could not run 'task {name}': {e}"
+    except OSError as e:
+        return f"Could not run 'task {name}': {e}"
+    text = _ANSI.sub("", res.stdout).rstrip()
+    if res.returncode != 0 and not text:
+        text = (res.stderr or "").strip() or f"'task {name}' exited with status {res.returncode}"
+    return text or f"'task {name}' produced no output"

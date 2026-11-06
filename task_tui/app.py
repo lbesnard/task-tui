@@ -8,6 +8,7 @@ import sys
 from copy import deepcopy
 from typing import Any, Callable, TypeVar
 
+from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -19,7 +20,15 @@ from textual.widgets import (
 )
 
 from .config import DEFAULT_CONFIG, load_app_config
-from .editing import add_dependency, build_task_fields
+from .editing import (
+    CUSTOM_RECUR,
+    add_dependency,
+    build_task_fields,
+    annotation_lines,
+    diff_annotations,
+    resolve_recur,
+    split_recur,
+)
 from .filters import FilterActionsMixin
 from .models import (
     commands,
@@ -29,14 +38,19 @@ from .models import (
 )
 from .screens import (
     ALL_PENDING,
+    AnnotateScreen,
+    DenotateScreen,
+    ConfirmScreen,
     ReportPickerScreen,
     DependencyListScreen,
     ErrorModalScreen,
     FuzzySearchScreen,
+    InfoViewScreen,
     QuickMenuScreen,
 )
-from .state import COLUMNS, AppState, sort_state_from_report
-from .utils import format_urgency, get_priority_color, get_project_color
+from .columns import cell_text, normalize_columns
+from .state import AppState, sort_state_from_report
+from .utils import format_urgency, get_priority_color, get_project_color, is_waiting
 from .widgets import TaskEditor
 
 T = TypeVar("T")
@@ -69,6 +83,7 @@ class TaskProApp(FilterActionsMixin, App):
     .metadata { color: #888888; text-style: bold; margin-top: 1; }
     Input, Select, TextArea { border: tall $primary; margin-bottom: 0; }
 
+    #txt_notes { height: 6; }
     #context_bar { background: $accent; color: white; content-align: center middle; text-style: bold; display: none; height: 1; width: 100%; padding: 0 1; }
     .visible { display: block !important; }
     """
@@ -80,14 +95,21 @@ class TaskProApp(FilterActionsMixin, App):
         ("toggle_selection", "toggle_selection", "Select", True),
         ("date_mode", "date_mode", "SetDate", True),
         ("prio_mode", "prio_mode", "SetPrio", True),
+        ("wait_mode", "wait_mode", "Snooze", True),
         ("filter_mode", "filter_mode", "Filter", True),
         ("edit_mode", "edit_mode", "Modify/Edit", True),
         ("new_task", "new_task", "New", True),
         ("save_task", "save_task", "Save", True),
         ("toggle_start", "toggle_start", "Start/Stop", True),
         ("mark_done", "mark_done", "Done", True),
+        ("delete_task", "delete_task", "Delete", True),
+        ("edit_external", "edit_external", "$EDITOR", True),
+        ("annotate", "annotate", "Note", True),
+        ("denotate", "denotate", "RmNote", False),
         ("refresh_tasks", "refresh_tasks", "Refresh", True),
         ("switch_report", "switch_report", "Report", True),
+        ("sync", "sync", "Sync", True),
+        ("info_views", "info_views", "Stats", True),
         ("cancel_edit", "cancel_edit", "Back", True),
         ("quit", "quit", "Quit", True),
         ("cursor_down", "cursor_down", "Down", False),
@@ -107,6 +129,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.BINDINGS = self._build_bindings()
         super().__init__()
         self.state = AppState()
+        self.state.set_columns(normalize_columns(self.config.get("ui", {}).get("columns")))
         self.is_modifying = False
         self.no_sync = False
         self._busy = False
@@ -191,6 +214,7 @@ class TaskProApp(FilterActionsMixin, App):
 
     def on_mount(self) -> None:
         self._register_dynamic_bindings()
+        self._sync_recur_widgets()
         if not self.config.get("ui", {}).get("show_debug_panel", True):
             self.query_one("#debug_panel").display = False
         self._init_report()
@@ -217,7 +241,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.state.report = report
         self.state.clear_filters()
         if report is not None:
-            new_sort = sort_state_from_report(report.sort)
+            new_sort = sort_state_from_report(report.sort, self.state.columns)
             if new_sort:
                 self.state.sort_state = new_sort
         self._update_subtitle()
@@ -305,6 +329,32 @@ class TaskProApp(FilterActionsMixin, App):
 
         self._run_blocking(list_reports, done)
 
+    def action_info_views(self) -> None:
+        width = max(60, min(self.size.width - 12, 160))
+        self.push_screen(InfoViewScreen(width=width))
+
+    def action_sync(self) -> None:
+        if self.is_dirty:
+            self.notify("Save or discard your edits before syncing", severity="warning")
+            return
+        self.notify("Syncing…")
+
+        def job() -> bool:
+            return sync_tasks(timeout=30, capture=True)
+
+        def done(ok: bool) -> None:
+            if ok:
+                self.refresh_tasks()
+                self.notify("Sync done")
+            else:
+                self.notify(
+                    "Sync failed or timed out. Is a sync server configured? "
+                    "Your changes are saved locally.",
+                    severity="error",
+                )
+
+        self._run_blocking(job, done)
+
     def action_undo(self) -> None:
         def job() -> tuple[bool, Exception | None]:
             try:
@@ -373,9 +423,11 @@ class TaskProApp(FilterActionsMixin, App):
     def action_new_task(self) -> None:
         self.set_modify_mode(True)
         self.state.active_uuid = "NEW"
-        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_dep", "#inp_tags"]:
+        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_wait", "#inp_dep", "#inp_tags"]:
             self.query_one(field).value = ""
+        self._set_recur_widgets("")
         self.query_one("#uuid_display").update("NEW TASK")
+        self._set_notes("")
         self.query_one("#inp_desc").focus()
 
     def action_toggle_start(self) -> None:
@@ -427,6 +479,104 @@ class TaskProApp(FilterActionsMixin, App):
                 )
             else:
                 self.notify(f"Completed {len(targets)} task(s)!")
+
+        self._run_blocking(job, done)
+
+    def action_delete_task(self) -> None:
+        targets = self._target_uuids()
+        if not targets:
+            return
+        names = [
+            (self.state.get_task_by_uuid(uid) or {}).get("description", uid)
+            for uid in targets
+        ]
+        shown = "\n".join(f"• {n}" for n in names[:8])
+        if len(names) > 8:
+            shown += f"\n… and {len(names) - 8} more"
+
+        def job() -> list[str]:
+            failed = []
+            for uid in targets:
+                try:
+                    commands.delete_task(uid)
+                except commands.TASK_FAILURES:
+                    failed.append(uid)
+            return failed
+
+        def done(failed: list[str]) -> None:
+            self.state.selected_uuids.clear()
+            self.refresh_tasks()
+            if failed:
+                self.notify(
+                    f"Deleted {len(targets) - len(failed)}/{len(targets)} tasks",
+                    severity="warning",
+                )
+            else:
+                self.notify(f"Deleted {len(targets)} task(s) (press u to undo)")
+
+        def confirmed(yes: bool | None) -> None:
+            if yes:
+                self._run_blocking(job, done)
+
+        self.push_screen(
+            ConfirmScreen(f"🗑  DELETE {len(targets)} TASK(S)?", shown), confirmed
+        )
+
+    def action_edit_external(self) -> None:
+        """Open the active task in $EDITOR via ``task edit``, then reload."""
+        uuid = self.state.active_uuid
+        if not uuid or uuid == "NEW":
+            return
+        editor = self.config.get("ui", {}).get("editor") or None
+        try:
+            with self.suspend():
+                code = commands.edit_in_editor(uuid, editor)
+        except Exception as e:  # e.g. SuspendNotSupported on non-terminal drivers
+            self.notify(f"Cannot open editor here: {e}", severity="error")
+            return
+        self.refresh_tasks()
+        if code != 0:
+            self.notify("Editor exited with an error; task may be unchanged", severity="warning")
+
+    def action_annotate(self) -> None:
+        uuid = self.state.active_uuid
+        if not uuid or uuid == "NEW":
+            return
+
+        def on_text(text: str | None) -> None:
+            if text:
+                self._annotation_job(lambda: commands.annotate_task(uuid, text), "Note added")
+
+        self.push_screen(AnnotateScreen(), on_text)
+
+    def action_denotate(self) -> None:
+        uuid = self.state.active_uuid
+        task = self.state.get_task_by_uuid(uuid) if uuid and uuid != "NEW" else None
+        notes = (task or {}).get("annotations") or []
+        if not notes:
+            self.notify("This task has no notes", severity="warning")
+            return
+
+        def on_pick(text: str | None) -> None:
+            if text is not None:
+                self._annotation_job(lambda: commands.denotate_task(uuid, text), "Note removed")
+
+        self.push_screen(DenotateScreen(notes), on_pick)
+
+    def _annotation_job(self, call: Callable[[], None], success: str) -> None:
+        def job() -> bool:
+            try:
+                call()
+                return True
+            except commands.TASK_FAILURES:
+                return False
+
+        def done(ok: bool) -> None:
+            if ok:
+                self.refresh_tasks()
+                self.notify(success)
+            else:
+                self.notify("Note update failed", severity="error")
 
         self._run_blocking(job, done)
 
@@ -483,6 +633,15 @@ class TaskProApp(FilterActionsMixin, App):
                 self.apply_quick_prio(result)
 
         self.push_screen(QuickMenuScreen("priority"), handle)
+
+    def action_wait_mode(self) -> None:
+        def handle(result: str | None) -> None:
+            if result is not None:
+                self._bulk_modify(f"wait:{result}")
+                if result:
+                    self.notify("Snoozed. Find it again with R → waiting")
+
+        self.push_screen(QuickMenuScreen("wait"), handle)
 
     def apply_quick_date(self, date_str: str) -> None:
         self._bulk_modify(f"due:{date_str}")
@@ -542,35 +701,42 @@ class TaskProApp(FilterActionsMixin, App):
         table.clear(columns=True)
         sort_idx = self.state.sort_state["index"]
         sort_rev = self.state.sort_state["reverse"]
-        for i, (label, key) in enumerate(COLUMNS):
+        for i, (label, key) in enumerate(self.state.columns):
             icon = " 🔽" if i == sort_idx and sort_rev else " 🔼" if i == sort_idx else ""
             table.add_column(f"{label}{icon}", key=key)
 
         for t in self.state.get_visible_tasks():
             uuid = t.get("uuid")
-            prio = t.get("priority", "X")
-            proj_name = t.get("project", "")
-            urgency_val = t.get("urgency", 0)
-
             is_active = "▸ " if t.get("start") else "  "
             prefix = "⭐ " if uuid in self.state.selected_uuids else is_active
-            dep_icon = "🔗 " if t.get("depends") else ""
-
-            table.add_row(
-                f"{prefix}{t.get('id')}",
-                f"[{get_project_color(proj_name)}]{proj_name}[/]",
-                f"[{get_priority_color(prio)}]{prio}[/]",
-                (t.get("due", "") or "")[:8],
-                ",".join(t.get("tags") or []),
-                format_urgency(urgency_val),
-                f"{dep_icon}{t.get('description', '')}",
-                key=uuid,
-            )
+            cells = [self._render_cell(t, key) for _, key in self.state.columns]
+            if cells:
+                cells[0] = f"{prefix}{cells[0]}"
+            table.add_row(*cells, key=uuid)
 
         if table.row_count > 0:
             new_row = min(saved_cursor_row, table.row_count - 1)
             table.move_cursor(row=new_row)
             table.scroll_to(x=saved_scroll_x, y=saved_scroll_y, animate=False)
+
+    def _render_cell(self, task: dict[str, Any], key: str) -> str:
+        """Rich-markup text for one cell of the task table."""
+        if key == "project":
+            name = task.get("project", "")
+            return f"[{get_project_color(name)}]{name}[/]"
+        if key == "priority":
+            prio = task.get("priority", "X")
+            return f"[{get_priority_color(prio)}]{prio}[/]"
+        if key == "urgency":
+            return format_urgency(task.get("urgency", 0))
+        if key == "description":
+            icons = (
+                ("🔗 " if task.get("depends") else "")
+                + ("🔁 " if task.get("recur") else "")
+                + ("💤 " if is_waiting(task) else "")
+            )
+            return f"{icons}{escape(task.get('description', ''))}"
+        return escape(cell_text(task, key))
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         if self.state.sort_state["index"] == event.column_index:
@@ -611,9 +777,43 @@ class TaskProApp(FilterActionsMixin, App):
                 "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
             )
 
-    def on_select_changed(self) -> None:
+    def on_select_changed(self, event=None) -> None:
+        if event is not None and getattr(event.select, "id", "") == "sel_recur":
+            self._sync_recur_widgets()
         if self.is_modifying:
             self.is_dirty = True
+
+    def on_checkbox_changed(self) -> None:
+        self._sync_recur_widgets()
+        if self.is_modifying:
+            self.is_dirty = True
+
+    def _set_notes(self, text: str) -> None:
+        self._notes_baseline = text
+        self.query_one("#txt_notes").text = text
+
+    def on_text_area_changed(self, event) -> None:
+        # Loading a task also fires Changed; only a real edit makes it dirty
+        if self.is_modifying and event.text_area.text != getattr(self, "_notes_baseline", ""):
+            self.is_dirty = True
+            self.query_one("#mode_indicator").update(
+                "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
+            )
+
+    def _set_recur_widgets(self, recur: str | None) -> None:
+        enabled, preset, custom = split_recur(recur)
+        self.query_one("#chk_recur").value = enabled
+        self.query_one("#sel_recur").value = preset
+        self.query_one("#inp_recur").value = custom
+        self._sync_recur_widgets()
+
+    def _sync_recur_widgets(self) -> None:
+        """Show the recurrence menu only when ticked, the text box only for Custom."""
+        enabled = self.query_one("#chk_recur").value
+        self.query_one("#sel_recur").display = bool(enabled)
+        self.query_one("#inp_recur").display = bool(
+            enabled and self.query_one("#sel_recur").value == CUSTOM_RECUR
+        )
 
     # ------------------------------------------------------------------ #
     # Edit mode
@@ -629,9 +829,12 @@ class TaskProApp(FilterActionsMixin, App):
         self.query_one("#inp_proj").value = task.get("project", "")
         due_date = (task.get("due", "") or "").replace("Z", "")[:8]
         self.query_one("#inp_due").value = due_date
+        self.query_one("#inp_wait").value = (task.get("wait", "") or "").replace("Z", "")[:8]
         self.query_one("#inp_tags").value = ",".join(task.get("tags") or [])
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends") or []))
         self.query_one("#sel_prio").value = task.get("priority", "X")
+        self._set_recur_widgets(task.get("recur", ""))
+        self._set_notes(annotation_lines(task.get("annotations")))
         if focus:
             self.set_modify_mode(True)
             self.query_one("#inp_desc").focus()
@@ -644,7 +847,7 @@ class TaskProApp(FilterActionsMixin, App):
         panel = self.query_one("#editor_panel")
         indicator = self.query_one("#mode_indicator")
 
-        for node in self.query("Input, Select, TextArea"):
+        for node in self.query("Input, Select, TextArea, Checkbox"):
             node.disabled = not active
             if active and hasattr(node, "read_only"):
                 node.read_only = False
@@ -670,13 +873,32 @@ class TaskProApp(FilterActionsMixin, App):
         is_new = self.state.active_uuid == "NEW"
         target = "add" if is_new else self.state.active_uuid
         save_uuid = None if is_new else self.state.active_uuid
+        task = None if is_new else self.state.get_task_by_uuid(self.state.active_uuid)
+        new_recur = resolve_recur(
+            bool(self.query_one("#chk_recur").value),
+            self.query_one("#sel_recur").value,
+            self.query_one("#inp_recur").value,
+        )
+        current_recur = (task or {}).get("recur", "") or ""
+        # Only send recur when it changed (or is set on a new task)
+        recur = new_recur if (new_recur != current_recur and (new_recur or not is_new)) else None
+        if recur == "" and task and task.get("parent"):
+            self.notify(
+                "Taskwarrior cannot remove the recurrence of a recurring task. "
+                "Delete the task to stop the series.",
+                severity="error",
+            )
+            return
+        rc_overrides = ["rc.recurrence.confirmation=yes"] if recur is not None and not is_new else []
         fields = build_task_fields(
             description=self.query_one("#inp_desc").value,
             project=self.query_one("#inp_proj").value,
             due=self.query_one("#inp_due").value,
+            wait=self.query_one("#inp_wait").value,
             tags=self.query_one("#inp_tags").value,
             depends=self.query_one("#inp_dep").value,
             priority=self.query_one("#sel_prio").value,
+            recur=recur,
         )
 
         def done(result: subprocess.CompletedProcess) -> None:
@@ -691,7 +913,26 @@ class TaskProApp(FilterActionsMixin, App):
                 self.query_one(DataTable).focus()
                 self.notify("Saved!")
 
-        self._run_blocking(lambda: commands.save_task(save_uuid, fields), done)
+        to_remove, to_add = diff_annotations(
+            (task or {}).get("annotations"), self.query_one("#txt_notes").text
+        )
+
+        def job() -> subprocess.CompletedProcess:
+            result = commands.save_task(save_uuid, fields, rc_overrides)
+            if result.returncode != 0 or not (to_remove or to_add):
+                return result
+            uuid = save_uuid or commands.latest_uuid()
+            try:
+                if uuid is None:
+                    raise subprocess.CalledProcessError(1, "task", stderr="new task not found")
+                commands.apply_note_changes(uuid, to_remove, to_add)
+            except commands.TASK_FAILURES:
+                return subprocess.CompletedProcess(
+                    result.args, 1, "", "Task saved, but updating its notes failed."
+                )
+            return result
+
+        self._run_blocking(job, done)
 
     def action_cancel_edit(self) -> None:
         self.set_modify_mode(False)
