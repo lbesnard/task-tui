@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 # column key (a Taskwarrior attribute, or a derived value) -> header label
@@ -54,11 +55,35 @@ def normalize_columns(value: Any) -> list[str]:
     return seen or list(DEFAULT_COLUMNS)
 
 
+def local_stamp(value: str | None, keep_time: bool = False) -> str:
+    """Taskwarrior UTC stamp (``YYYYMMDDTHHMMSSZ``) -> local ``YYYYMMDD``.
+
+    Taskwarrior exports dates in UTC; cutting the stamp shows the UTC day,
+    which east of Greenwich is one day early for local midnight. With
+    ``keep_time`` a time other than local midnight is kept
+    (``YYYYMMDDTHHMMSS``, local) so a form round trip does not move it.
+    Anything unparsable falls back to the first eight characters.
+    """
+    if not value:
+        return ""
+    try:
+        local = (
+            datetime.strptime(value, "%Y%m%dT%H%M%SZ")
+            .replace(tzinfo=timezone.utc)
+            .astimezone()
+        )
+    except ValueError:
+        return value.replace("Z", "")[:8]
+    if keep_time and (local.hour, local.minute, local.second) != (0, 0, 0):
+        return local.strftime("%Y%m%dT%H%M%S")
+    return local.strftime("%Y%m%d")
+
+
 def cell_text(task: dict[str, Any], key: str) -> str:
     """Plain-text value of a task for the given column (no markup)."""
     value = task.get(key)
     if key in DATE_COLUMNS:
-        return (value or "")[:8]
+        return local_stamp(value)
     if key == "tags":
         return ",".join(value or [])
     if key in COUNT_COLUMNS:
