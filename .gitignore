@@ -1,4 +1,3 @@
-uv.lock
 task_tui.egg-info/
 task_tui/__pycache__/
 task_tui/**/__pycache__/

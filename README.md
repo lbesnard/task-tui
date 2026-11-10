@@ -73,10 +73,11 @@ git clone https://github.com/lbesnard/task-tui.git
 cd task-tui
 ```
 
-2. Install in editable mode:
+2. Install with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-pip install -e .
+uv sync
+uv run task-tui
 ```
 
 ---
