@@ -798,17 +798,31 @@ class TaskProApp(FilterActionsMixin, App):
     def on_descendant_focus(self, event) -> None:
         if isinstance(event.control, DataTable) and self.is_dirty:
             self.notify(
-                "⚠️ UNSAVED CHANGES! Press 'x' to save or 'Ctrl+Z' to discard.",
+                f"⚠️ UNSAVED CHANGES! Press '{self._key_name('save_task')}' to save or "
+                f"'{self._key_name('cancel_edit')}' to discard.",
                 severity="warning",
                 timeout=3,
             )
 
+    def _key_name(self, action: str) -> str:
+        key = self.shortcuts.get(action, DEFAULT_CONFIG["shortcuts"].get(action, ""))
+        return key if isinstance(key, str) else "/".join(key)
+
+    def _modifying_label(self, unsaved: bool = False) -> str:
+        """Mode indicator text with a reminder of how to leave edit mode."""
+        save = self._key_name("save_task")
+        discard = self._key_name("cancel_edit")
+        label = "✏️ MODIFYING"
+        if unsaved:
+            label += " [b][blink][yellow](UNSAVED)[/][/][/]"
+        # A single character is typed into text fields, so it only saves elsewhere.
+        where = " outside text fields" if len(save) == 1 else ""
+        return f"{label}\n[dim]\\[{escape(save)}] save{where} · \\[{escape(discard)}] discard[/]"
+
     def on_input_changed(self) -> None:
         if self.is_modifying:
             self.is_dirty = True
-            self.query_one("#mode_indicator").update(
-                "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
-            )
+            self.query_one("#mode_indicator").update(self._modifying_label(unsaved=True))
 
     def on_select_changed(self, event=None) -> None:
         if event is not None and getattr(event.select, "id", "") == "sel_recur":
@@ -829,9 +843,7 @@ class TaskProApp(FilterActionsMixin, App):
         # Loading a task also fires Changed; only a real edit makes it dirty
         if self.is_modifying and event.text_area.text != getattr(self, "_notes_baseline", ""):
             self.is_dirty = True
-            self.query_one("#mode_indicator").update(
-                "✏️ MODIFYING [b][blink][yellow](UNSAVED)[/][/][/]"
-            )
+            self.query_one("#mode_indicator").update(self._modifying_label(unsaved=True))
 
     def _set_recur_widgets(self, recur: str | None) -> None:
         enabled, preset, custom = split_recur(recur)
@@ -888,7 +900,7 @@ class TaskProApp(FilterActionsMixin, App):
         if active:
             panel.remove_class("view_mode")
             panel.add_class("edit_mode")
-            indicator.update("✏️ MODIFYING")
+            indicator.update(self._modifying_label())
         else:
             panel.remove_class("edit_mode")
             panel.add_class("view_mode")
