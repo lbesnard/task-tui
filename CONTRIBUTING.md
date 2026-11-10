@@ -35,23 +35,18 @@ Thank you for your interest in contributing to Task-TUI! This document provides 
 
 ### Installation
 
-1. **Create a virtual environment** (recommended):
+1. **Install [uv](https://docs.astral.sh/uv/)** and sync the environment
+   (creates `.venv`, installs the package in editable mode plus dev dependencies):
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   uv sync --extra dev
    ```
 
-2. **Install in editable mode**:
+2. **Run commands inside the environment**:
    ```bash
-   pip install -e .
+   uv run pytest
    ```
 
-3. **Install development dependencies** (when available):
-   ```bash
-   pip install -e ".[dev]"
-   ```
-
-4. **Verify installation**:
+3. **Verify installation**:
    ```bash
    task-tui --version
    ```
