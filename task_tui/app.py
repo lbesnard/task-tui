@@ -48,7 +48,7 @@ from .screens import (
     InfoViewScreen,
     QuickMenuScreen,
 )
-from .columns import cell_text, normalize_columns
+from .columns import cell_text, local_stamp, normalize_columns
 from .state import AppState, sort_state_from_report
 from .utils import format_urgency, get_priority_color, get_project_color, is_waiting
 from .widgets import TaskEditor
@@ -872,9 +872,9 @@ class TaskProApp(FilterActionsMixin, App):
         self.query_one("#uuid_display").update(uuid)
         self.query_one("#inp_desc").value = task.get("description", "")
         self.query_one("#inp_proj").value = task.get("project", "")
-        due_date = (task.get("due", "") or "").replace("Z", "")[:8]
+        due_date = local_stamp(task.get("due"), keep_time=True)
         self.query_one("#inp_due").value = due_date
-        self.query_one("#inp_wait").value = (task.get("wait", "") or "").replace("Z", "")[:8]
+        self.query_one("#inp_wait").value = local_stamp(task.get("wait"), keep_time=True)
         self.query_one("#inp_tags").value = ",".join(task.get("tags") or [])
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends") or []))
         self.query_one("#sel_prio").value = task.get("priority", "X")

@@ -1,5 +1,6 @@
 """Tests for configurable table columns."""
 import json
+import time
 from unittest.mock import Mock
 
 import pytest
@@ -8,10 +9,22 @@ from task_tui.columns import (
     COLUMN_LABELS,
     DEFAULT_COLUMNS,
     cell_text,
+    local_stamp,
     normalize_columns,
 )
 from task_tui.config import load_app_config
 from task_tui.state import COLUMNS, AppState, sort_state_from_report
+
+
+@pytest.fixture
+def tz(monkeypatch):
+    """Run a test in a given local time zone (restored afterwards)."""
+    def set_tz(name):
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+    yield set_tz
+    monkeypatch.undo()
+    time.tzset()
 
 
 class TestNormalize:
@@ -34,9 +47,21 @@ class TestNormalize:
 
 
 class TestCellText:
-    def test_dates_truncated(self):
+    def test_dates_truncated(self, tz):
+        tz("UTC")
         assert cell_text({"wait": "20261112T234433Z"}, "wait") == "20261112"
         assert cell_text({}, "due") == ""
+
+    def test_dates_local_day(self, tz):
+        # Local midnight 13 Nov in Berlin is 12 Nov 23:00 UTC.
+        tz("CET-1CEST,M3.5.0,M10.5.0/3")  # Berlin as a POSIX rule, needs no tzdata
+        assert cell_text({"due": "20261112T230000Z"}, "due") == "20261113"
+
+    def test_form_round_trip_keeps_time(self, tz):
+        tz("CET-1CEST,M3.5.0,M10.5.0/3")  # Berlin as a POSIX rule, needs no tzdata
+        assert local_stamp("20261112T230000Z", keep_time=True) == "20261113"
+        assert local_stamp("20261115T225959Z", keep_time=True) == "20261115T235959"
+        assert local_stamp("garbage", keep_time=True) == "garbage"[:8]
 
     def test_tags_joined(self):
         assert cell_text({"tags": ["a", "b"]}, "tags") == "a,b"
