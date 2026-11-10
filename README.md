@@ -104,7 +104,7 @@ uv run task-tui
 | :------ | :----------------------------------------------------- |
 | `i`     | **Modify**: Enter Edit Mode for selected task          |
 | `n`     | **New**: Create a new task                             |
-| `x`     | **Save**: Save changes (works while focused in inputs) |
+| `x`     | **Save**: Save changes (not while typing in a text field, where `x` is just a character; see below) |
 | `s`     | **Start/Stop**: Toggle active status on a task         |
 | `N`     | **Pin/Unpin**: Toggle the `+next` tag, which boosts urgency (pinned tasks show 📌) |
 | `d`     | **Done**: Mark selected task as completed              |
@@ -166,6 +166,8 @@ You can customize keyboard shortcuts and future UI settings there. Example:
   }
 }
 ```
+
+**Saving from text fields:** `x` can't save while the cursor is in a text field (description, project, due, wait, depends, tags, notes), because the field consumes the key. To save from anywhere, rebind it to a modifier key, e.g. `"save_task": "ctrl+s"`. (Your terminal must not intercept `ctrl+s`; if it freezes output, run `stty -ixon`.)
 
 `default_report` is optional: leave it `null` to start with all pending tasks. `editor` is optional too: leave it `null` to use your `$VISUAL`/`$EDITOR`. The report switcher key is `shortcuts.switch_report` (default `R`).
 
