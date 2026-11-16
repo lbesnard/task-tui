@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from rich.text import Text
+
 # column key (a Taskwarrior attribute, or a derived value) -> header label
 COLUMN_LABELS: dict[str, str] = {
     "id": "ID",
@@ -77,6 +79,19 @@ def local_stamp(value: str | None, keep_time: bool = False) -> str:
     if keep_time and (local.hour, local.minute, local.second) != (0, 0, 0):
         return local.strftime("%Y%m%dT%H%M%S")
     return local.strftime("%Y%m%d")
+
+
+def column_widths(labels: list[str], rows: list[list[str]]) -> list[int]:
+    """Display width of each column: the widest of label and cells (Rich markup).
+
+    Passed to ``DataTable.add_column(width=...)`` so the table does not have to
+    measure the cells itself after the rows were added.
+    """
+    widths = [Text.from_markup(label).cell_len for label in labels]
+    for cells in rows:
+        for i, cell in enumerate(cells):
+            widths[i] = max(widths[i], Text.from_markup(cell).cell_len)
+    return widths
 
 
 def cell_text(task: dict[str, Any], key: str) -> str:

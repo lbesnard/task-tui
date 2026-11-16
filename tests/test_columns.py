@@ -9,6 +9,7 @@ from task_tui.columns import (
     COLUMN_LABELS,
     DEFAULT_COLUMNS,
     cell_text,
+    column_widths,
     local_stamp,
     normalize_columns,
 )
@@ -143,3 +144,16 @@ class TestTableRendering:
     def test_render_cell_priority_and_urgency(self, sample_app):
         assert "H" in sample_app._render_cell({"priority": "H"}, "priority")
         assert sample_app._render_cell({"urgency": 25}, "urgency")
+
+
+class TestColumnWidths:
+    def test_widest_of_label_and_cells(self):
+        assert column_widths(["ID", "Desc."], [["1", "x"], ["12", "a long one"]]) == [2, 10]
+
+    def test_markup_and_wide_chars(self):
+        # markup does not count, emoji take two cells
+        assert column_widths(["P"], [["[red]H[/]"]]) == [1]
+        assert column_widths(["D"], [["🔗 ab"]]) == [5]
+
+    def test_no_rows(self):
+        assert column_widths(["Due 🔼"], []) == [6]

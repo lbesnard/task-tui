@@ -48,7 +48,7 @@ from .screens import (
     InfoViewScreen,
     QuickMenuScreen,
 )
-from .columns import cell_text, local_stamp, normalize_columns
+from .columns import cell_text, column_widths, local_stamp, normalize_columns
 from .state import AppState, sort_state_from_report
 from .utils import format_urgency, get_priority_color, get_project_color, is_waiting
 from .widgets import TaskEditor
@@ -730,13 +730,14 @@ class TaskProApp(FilterActionsMixin, App):
         saved_cursor_row = table.cursor_row
         saved_scroll_x, saved_scroll_y = table.scroll_offset
 
-        table.clear(columns=True)
         sort_idx = self.state.sort_state["index"]
         sort_rev = self.state.sort_state["reverse"]
-        for i, (label, key) in enumerate(self.state.columns):
+        labels = []
+        for i, (label, _key) in enumerate(self.state.columns):
             icon = " 🔽" if i == sort_idx and sort_rev else " 🔼" if i == sort_idx else ""
-            table.add_column(f"{label}{icon}", key=key)
+            labels.append(f"{label}{icon}")
 
+        rows = []
         for t in self.state.get_visible_tasks():
             uuid = t.get("uuid")
             is_active = "▸ " if t.get("start") else "  "
@@ -744,6 +745,17 @@ class TaskProApp(FilterActionsMixin, App):
             cells = [self._render_cell(t, key) for _, key in self.state.columns]
             if cells:
                 cells[0] = f"{prefix}{cells[0]}"
+            rows.append((uuid, cells))
+
+        # Explicit widths: DataTable measures auto-width columns only on idle and
+        # does not invalidate rows painted before that, so a repaint right after
+        # the rebuild left the header and the first rows truncated.
+        widths = column_widths(labels, [cells for _, cells in rows])
+
+        table.clear(columns=True)
+        for (label, (_, key)), width in zip(zip(labels, self.state.columns), widths):
+            table.add_column(label, key=key, width=width)
+        for uuid, cells in rows:
             table.add_row(*cells, key=uuid)
 
         if table.row_count > 0:
