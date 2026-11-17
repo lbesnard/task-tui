@@ -7,6 +7,7 @@ from .fuzzy_search import FuzzySearchScreen
 from .info_view import InfoViewScreen
 from .multi_select_filter import MultiSelectFilterScreen
 from .quick_menu import QuickMenuScreen
+from .recurrence_scope import RecurrenceScopeScreen
 from .report_picker import ALL_PENDING, ReportPickerScreen
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "FuzzySearchScreen",
     "MultiSelectFilterScreen",
     "QuickMenuScreen",
+    "RecurrenceScopeScreen",
 ]
