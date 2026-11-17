@@ -11,7 +11,7 @@ requires-python = ">=3.10,<4.0"
 authors = [{ name = "L. Besnard" }]
 license = { text = "MIT" }
 keywords = ["taskwarrior", "tui", "productivity", "cli"]
-dependencies = ["textual>=0.85.0"]
+dependencies = ["textual>=0.85.0", "pyyaml>=6.0"]
 
 [project.optional-dependencies]
 dev = [

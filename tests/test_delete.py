@@ -19,6 +19,7 @@ class TestDeleteCommand:
             ["task", "rc.confirmation=off", "abc-123", "delete"],
             check=True,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             timeout=30,
         )
 

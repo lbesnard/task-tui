@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 from copy import deepcopy
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Sequence, TypeVar
 
 from rich.markup import escape
 from textual.app import App, ComposeResult
@@ -47,6 +47,7 @@ from .screens import (
     FuzzySearchScreen,
     InfoViewScreen,
     QuickMenuScreen,
+    RecurrenceScopeScreen,
 )
 from .columns import cell_text, column_widths, local_stamp, normalize_columns
 from .state import AppState, sort_state_from_report
@@ -134,6 +135,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.is_modifying = False
         self.no_sync = False
         self._busy = False
+        self._recurrence_setting: str | None = None  # read from taskrc on first use
 
     # ------------------------------------------------------------------ #
     # State property shims (delegate to AppState for backward compat)
@@ -469,15 +471,6 @@ class TaskProApp(FilterActionsMixin, App):
         unpin = all("next" in (t.get("tags") or []) for t in tasks)
         modification = "-next" if unpin else "+next"
 
-        def job() -> list[str]:
-            failed = []
-            for uid in targets:
-                try:
-                    commands.modify_task(uid, modification)
-                except commands.TASK_FAILURES:
-                    failed.append(uid)
-            return failed
-
         def done(failed: list[str]) -> None:
             self.refresh_tasks()
             if failed:
@@ -485,7 +478,19 @@ class TaskProApp(FilterActionsMixin, App):
             else:
                 self.notify("Unpinned" if unpin else "Pinned to top (+next)")
 
-        self._run_blocking(job, done)
+        def run(rc_overrides: Sequence[str]) -> None:
+            def job() -> list[str]:
+                failed = []
+                for uid in targets:
+                    try:
+                        commands.modify_task(uid, modification, rc_overrides)
+                    except commands.TASK_FAILURES:
+                        failed.append(uid)
+                return failed
+
+            self._run_blocking(job, done)
+
+        self._with_recurrence_scope(targets, run)
 
     def action_mark_done(self) -> None:
         targets = self._target_uuids()
@@ -526,15 +531,6 @@ class TaskProApp(FilterActionsMixin, App):
         if len(names) > 8:
             shown += f"\n… and {len(names) - 8} more"
 
-        def job() -> list[str]:
-            failed = []
-            for uid in targets:
-                try:
-                    commands.delete_task(uid)
-                except commands.TASK_FAILURES:
-                    failed.append(uid)
-            return failed
-
         def done(failed: list[str]) -> None:
             self.state.selected_uuids.clear()
             self.refresh_tasks()
@@ -546,9 +542,21 @@ class TaskProApp(FilterActionsMixin, App):
             else:
                 self.notify(f"Deleted {len(targets)} task(s) (press u to undo)")
 
+        def run(rc_overrides: Sequence[str]) -> None:
+            def job() -> list[str]:
+                failed = []
+                for uid in targets:
+                    try:
+                        commands.delete_task(uid, rc_overrides)
+                    except commands.TASK_FAILURES:
+                        failed.append(uid)
+                return failed
+
+            self._run_blocking(job, done)
+
         def confirmed(yes: bool | None) -> None:
             if yes:
-                self._run_blocking(job, done)
+                self._with_recurrence_scope(targets, run, deleting=True)
 
         self.push_screen(
             ConfirmScreen(f"🗑  DELETE {len(targets)} TASK(S)?", shown), confirmed
@@ -577,7 +585,13 @@ class TaskProApp(FilterActionsMixin, App):
 
         def on_text(text: str | None) -> None:
             if text:
-                self._annotation_job(lambda: commands.annotate_task(uuid, text), "Note added")
+                self._with_recurrence_scope(
+                    [uuid],
+                    lambda rc_overrides: self._annotation_job(
+                        lambda: commands.annotate_task(uuid, text, rc_overrides), "Note added"
+                    ),
+                    templates=False,
+                )
 
         self.push_screen(AnnotateScreen(), on_text)
 
@@ -684,21 +698,24 @@ class TaskProApp(FilterActionsMixin, App):
     def _bulk_modify(self, modification: str) -> None:
         targets = self._target_uuids()
 
-        def job() -> list[str]:
-            failed = []
-            for uid in targets:
-                try:
-                    commands.modify_task(uid, modification)
-                except commands.TASK_FAILURES:
-                    failed.append(uid)
-            return failed
-
         def done(failed: list[str]) -> None:
             self.refresh_tasks()
             if failed:
                 self.notify(f"Failed to update {len(failed)} task(s)", severity="warning")
 
-        self._run_blocking(job, done)
+        def run(rc_overrides: Sequence[str]) -> None:
+            def job() -> list[str]:
+                failed = []
+                for uid in targets:
+                    try:
+                        commands.modify_task(uid, modification, rc_overrides)
+                    except commands.TASK_FAILURES:
+                        failed.append(uid)
+                return failed
+
+            self._run_blocking(job, done)
+
+        self._with_recurrence_scope(targets, run)
 
     # ------------------------------------------------------------------ #
     # Data & table
@@ -974,22 +991,29 @@ class TaskProApp(FilterActionsMixin, App):
             (task or {}).get("annotations"), self.query_one("#txt_notes").text
         )
 
-        def job() -> subprocess.CompletedProcess:
-            result = commands.save_task(save_uuid, fields, rc_overrides)
-            if result.returncode != 0 or not (to_remove or to_add):
-                return result
-            uuid = save_uuid or commands.latest_uuid()
-            try:
-                if uuid is None:
-                    raise subprocess.CalledProcessError(1, "task", stderr="new task not found")
-                commands.apply_note_changes(uuid, to_remove, to_add)
-            except commands.TASK_FAILURES:
-                return subprocess.CompletedProcess(
-                    result.args, 1, "", "Task saved, but updating its notes failed."
-                )
-            return result
+        def run(scope_overrides: Sequence[str]) -> None:
+            overrides = [*rc_overrides, *scope_overrides]
 
-        self._run_blocking(job, done)
+            def job() -> subprocess.CompletedProcess:
+                result = commands.save_task(save_uuid, fields, overrides)
+                if result.returncode != 0 or not (to_remove or to_add):
+                    return result
+                uuid = save_uuid or commands.latest_uuid()
+                try:
+                    if uuid is None:
+                        raise subprocess.CalledProcessError(1, "task", stderr="new task not found")
+                    commands.apply_note_changes(uuid, to_remove, to_add, overrides)
+                except commands.TASK_FAILURES:
+                    return subprocess.CompletedProcess(
+                        result.args, 1, "", "Task saved, but updating its notes failed."
+                    )
+                return result
+
+            self._run_blocking(job, done)
+
+        # A changed recurrence already applies to the whole series (rc_overrides);
+        # otherwise ask once, and use the answer for the fields and the notes.
+        self._with_recurrence_scope([save_uuid] if save_uuid and not rc_overrides else [], run)
 
     def action_cancel_edit(self) -> None:
         self.set_modify_mode(False)
@@ -998,6 +1022,43 @@ class TaskProApp(FilterActionsMixin, App):
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
+
+    def _with_recurrence_scope(
+        self,
+        uuids: Sequence[str],
+        action: Callable[[Sequence[str]], None],
+        *,
+        deleting: bool = False,
+        templates: bool = True,
+    ) -> None:
+        """Call ``action(rc_overrides)``, asking first how far the change should reach.
+
+        Taskwarrior asks "all pending recurrences of this same task?" when an
+        occurrence of a recurring task is modified, annotated or deleted, and
+        when a recurrence template is modified or deleted (``templates``;
+        annotating a template does not ask). It cannot ask here, so the
+        question is put in a dialog and the answer passed on as
+        ``rc.recurrence.confirmation``. Cancelling the dialog drops the action.
+
+        Nothing is asked, and no override is passed, when no recurring task
+        is involved or when the user's taskrc already answers the question
+        (``recurrence.confirmation`` other than ``prompt``).
+        """
+        tasks = [self.state.get_task_by_uuid(uid) or {} for uid in uuids]
+        recurring = any(
+            t.get("parent") or (templates and t.get("status") == "recurring") for t in tasks
+        )
+        if recurring and self._recurrence_setting is None:
+            self._recurrence_setting = commands.recurrence_confirmation()
+        if not recurring or self._recurrence_setting != "prompt":
+            action(())
+            return
+
+        def chosen(scope: str | None) -> None:
+            if scope is not None:
+                action(commands.recurrence_overrides(scope))
+
+        self.push_screen(RecurrenceScopeScreen(deleting=deleting), chosen)
 
     def _run_blocking(self, job: Callable[[], T], on_done: Callable[[T], None]) -> None:
         """Run a slow ``task`` CLI job without freezing the UI.

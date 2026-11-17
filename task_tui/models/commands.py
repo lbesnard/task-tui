@@ -2,6 +2,12 @@
 
 Every function here shells out to the ``task`` CLI with TASK_TIMEOUT. The
 helpers that report success/failure treat a timeout like any other failure.
+
+None of them may wait for the user: ``task`` runs with stdin detached, so a
+confirmation Taskwarrior would ask on the terminal is answered "no" at once
+instead of blocking until the timeout (and stealing the TUI's key presses).
+The one question that matters, how far a change to a recurring task reaches,
+is asked by the app and passed in as ``rc_overrides``.
 """
 
 from __future__ import annotations
@@ -15,6 +21,37 @@ from .task import TASK_TIMEOUT
 
 TASK_FAILURES = (subprocess.CalledProcessError, subprocess.TimeoutExpired)
 
+# How far a change to a recurring task reaches; the values are the answers
+# Taskwarrior accepts for ``rc.recurrence.confirmation``.
+RECUR_THIS = "no"  # only the task itself
+RECUR_SERIES = "yes"  # every pending occurrence and the recurrence template
+
+
+def recurrence_overrides(scope: str) -> list[str]:
+    """The ``rc.`` override that answers Taskwarrior's recurrence question."""
+    return [f"rc.recurrence.confirmation={scope}"]
+
+
+def recurrence_confirmation() -> str:
+    """Taskwarrior's ``recurrence.confirmation`` setting.
+
+    ``prompt`` (the default) means Taskwarrior would ask on the terminal;
+    anything else is a fixed answer from the user's taskrc. Falls back to
+    ``prompt`` when the setting cannot be read.
+    """
+    try:
+        res = subprocess.run(
+            ["task", "rc.verbose=nothing", "_get", "rc.recurrence.confirmation"],
+            capture_output=True,
+            text=True,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            timeout=TASK_TIMEOUT,
+        )
+    except (*TASK_FAILURES, OSError):
+        return "prompt"
+    return res.stdout.strip() or "prompt"
+
 
 def undo_last_action() -> bool:
     """Run ``task undo``. Returns False when there was nothing to undo."""
@@ -22,6 +59,7 @@ def undo_last_action() -> bool:
         ["task", "rc.confirmation=off", "undo"],
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
         timeout=TASK_TIMEOUT,
     )
     return result.returncode == 0
@@ -30,31 +68,38 @@ def undo_last_action() -> bool:
 def start_or_stop(uuid: str, stop: bool) -> None:
     """Start or stop a task. Raises one of TASK_FAILURES on failure."""
     subprocess.run(
-        ["task", uuid, "stop" if stop else "start"], check=True, timeout=TASK_TIMEOUT
+        ["task", uuid, "stop" if stop else "start"],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        timeout=TASK_TIMEOUT,
     )
 
 
 def mark_done(uuid: str) -> None:
     """Complete a task. Raises one of TASK_FAILURES on failure."""
-    subprocess.run(["task", uuid, "done"], check=True, timeout=TASK_TIMEOUT)
+    subprocess.run(
+        ["task", uuid, "done"], check=True, stdin=subprocess.DEVNULL, timeout=TASK_TIMEOUT
+    )
 
 
-def delete_task(uuid: str) -> None:
+def delete_task(uuid: str, rc_overrides: Sequence[str] = ()) -> None:
     """Delete a task without the interactive prompt. Raises one of TASK_FAILURES."""
     subprocess.run(
-        ["task", "rc.confirmation=off", uuid, "delete"],
+        ["task", "rc.confirmation=off", *rc_overrides, uuid, "delete"],
         check=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,
         timeout=TASK_TIMEOUT,
     )
 
 
-def annotate_task(uuid: str, text: str) -> None:
+def annotate_task(uuid: str, text: str, rc_overrides: Sequence[str] = ()) -> None:
     """Add an annotation. ``--`` keeps text like ``due:friday`` literal."""
     subprocess.run(
-        ["task", uuid, "annotate", "--", text],
+        ["task", *rc_overrides, uuid, "annotate", "--", text],
         check=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,
         timeout=TASK_TIMEOUT,
     )
 
@@ -65,6 +110,7 @@ def denotate_task(uuid: str, text: str) -> None:
         ["task", "rc.confirmation=off", uuid, "denotate", "--", text],
         check=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,
         timeout=TASK_TIMEOUT,
     )
 
@@ -85,12 +131,21 @@ def latest_uuid() -> str | None:
     return uuids[0] if uuids else None
 
 
-def apply_note_changes(uuid: str, to_remove: Sequence[str], to_add: Sequence[str]) -> None:
-    """Denotate then annotate. Raises one of TASK_FAILURES on the first failure."""
+def apply_note_changes(
+    uuid: str,
+    to_remove: Sequence[str],
+    to_add: Sequence[str],
+    rc_overrides: Sequence[str] = (),
+) -> None:
+    """Denotate then annotate. Raises one of TASK_FAILURES on the first failure.
+
+    ``rc_overrides`` go to ``annotate`` only: Taskwarrior does not propagate
+    ``denotate`` to other occurrences of a recurring task.
+    """
     for text in to_remove:
         denotate_task(uuid, text)
     for text in to_add:
-        annotate_task(uuid, text)
+        annotate_task(uuid, text, rc_overrides)
 
 
 def edit_in_editor(uuid: str, editor: str | None = None) -> int:
@@ -110,12 +165,13 @@ def edit_in_editor(uuid: str, editor: str | None = None) -> int:
         return 1
 
 
-def modify_task(uuid: str, modification: str) -> None:
+def modify_task(uuid: str, modification: str, rc_overrides: Sequence[str] = ()) -> None:
     """Apply a single ``attr:value`` modification. Raises one of TASK_FAILURES."""
     subprocess.run(
-        ["task", uuid, "modify", modification],
+        ["task", *rc_overrides, uuid, "modify", modification],
         check=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,
         timeout=TASK_TIMEOUT,
     )
 
@@ -137,7 +193,9 @@ def save_task(
     cmd.extend(f"{name}:{value}" for name, value in fields.items())
 
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=TASK_TIMEOUT)
+        return subprocess.run(
+            cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=TASK_TIMEOUT
+        )
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(
             cmd, 1, "", f"task timed out after {TASK_TIMEOUT}s"
