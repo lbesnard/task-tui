@@ -48,6 +48,8 @@ class TaskEditor(Vertical):
         yield Input(id="inp_due", disabled=True)
         yield Label("WAIT / SNOOZE UNTIL (same formats as due; empty = visible)", classes="metadata")
         yield Input(id="inp_wait", disabled=True)
+        yield Label("UNTIL / EXPIRES (deleted after this; empty = never)", classes="metadata")
+        yield Input(id="inp_until", disabled=True)
         yield Checkbox("Recurring (needs a due date)", id="chk_recur", disabled=True)
         yield Select(
             [(label, value) for label, value in RECUR_PRESETS],

@@ -68,6 +68,7 @@ def build_task_fields(
     depends: str,
     priority: str,
     wait: str = "",
+    until: str = "",
     recur: str | None = None,
 ) -> dict[str, str]:
     """Map raw edit-panel values to ``attr -> value`` for ``task add/modify``.
@@ -82,6 +83,7 @@ def build_task_fields(
         "depends": ",".join(d.strip() for d in depends.split(",") if d.strip()),
         "priority": "" if priority == "X" else priority,
         "wait": normalize_due(wait),
+        "until": normalize_due(until),
     }
     # Only sent when the caller decided it changed: Taskwarrior refuses to
     # clear (or sometimes even re-set) the recurrence of a recurring task.

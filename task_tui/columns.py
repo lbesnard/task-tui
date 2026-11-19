@@ -18,6 +18,7 @@ COLUMN_LABELS: dict[str, str] = {
     "description": "Desc.",
     "scheduled": "Sched.",
     "wait": "Wait",
+    "until": "Until",
     "entry": "Added",
     "modified": "Modified",
     "start": "Started",
@@ -37,7 +38,7 @@ DEFAULT_COLUMNS: list[str] = [
     "description",
 ]
 
-DATE_COLUMNS = {"due", "scheduled", "wait", "entry", "modified", "start"}
+DATE_COLUMNS = {"due", "scheduled", "wait", "until", "entry", "modified", "start"}
 COUNT_COLUMNS = {"annotations", "depends"}
 
 

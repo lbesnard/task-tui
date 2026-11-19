@@ -235,7 +235,7 @@ class TestSave:
         app.set_modify_mode = Mock()
         widgets = {
             "#inp_desc": Mock(value="d"), "#inp_proj": Mock(value=""),
-            "#inp_due": Mock(value="20261122"), "#inp_wait": Mock(value=""),
+            "#inp_due": Mock(value="20261122"), "#inp_wait": Mock(value=""), "#inp_until": Mock(value=""),
             "#inp_dep": Mock(value=""), "#inp_tags": Mock(value=""),
             "#sel_prio": Mock(value="X"), "#txt_notes": Mock(text="new line"),
             "#chk_recur": Mock(value=True), "#sel_recur": Mock(value="weekly"),

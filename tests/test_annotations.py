@@ -143,7 +143,7 @@ class TestNotesOnSave:
         ]
         widgets = {
             "#inp_desc": Mock(value="d"), "#inp_proj": Mock(value=""),
-            "#inp_due": Mock(value=""), "#inp_wait": Mock(value=""),
+            "#inp_due": Mock(value=""), "#inp_wait": Mock(value=""), "#inp_until": Mock(value=""),
             "#inp_dep": Mock(value=""), "#inp_tags": Mock(value=""),
             "#sel_prio": Mock(value="X"),
             "#chk_recur": Mock(value=False), "#sel_recur": Mock(value="weekly"),
