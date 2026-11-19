@@ -16,8 +16,8 @@ def sort_state_from_report(
     """Translate the first key of a Taskwarrior sort spec (e.g. ``urgency-``).
 
     Returns None when the key is not one of the displayed ``columns`` (default:
-    the default columns), so the current sort is kept. ``-`` means descending,
-    which is ``reverse=True`` here.
+    the default columns); the caller then uses ``default_sort_state``. ``-``
+    means descending, which is ``reverse=True`` here.
     """
     first = sort_spec.split(",")[0].strip().rstrip("/")
     if not first or first[-1] not in "+-":
@@ -27,6 +27,17 @@ def sort_state_from_report(
     if name not in keys:
         return None
     return {"index": keys.index(name), "reverse": first[-1] == "-"}
+
+
+def default_sort_state(columns: list[tuple[str, str]] | None = None) -> dict[str, Any]:
+    """The order the list starts in: most urgent first.
+
+    Falls back to the first column, ascending, when urgency is not displayed.
+    """
+    keys = [key for _, key in (columns or COLUMNS)]
+    if "urgency" in keys:
+        return {"index": keys.index("urgency"), "reverse": True}
+    return {"index": 0, "reverse": False}
 
 
 @dataclass
@@ -41,7 +52,7 @@ class AppState:
     raw_tasks: list[dict[str, Any]] = field(default_factory=list)
     active_uuid: str | None = None
     selected_uuids: set[str] = field(default_factory=set)
-    sort_state: dict[str, Any] = field(default_factory=lambda: {"index": 5, "reverse": True})
+    sort_state: dict[str, Any] = field(default_factory=default_sort_state)
     columns: list[tuple[str, str]] = field(default_factory=lambda: list(COLUMNS))
 
     # Active Taskwarrior report; None means "all pending tasks"

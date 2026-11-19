@@ -50,7 +50,7 @@ from .screens import (
     RecurrenceScopeScreen,
 )
 from .columns import cell_text, column_widths, local_stamp, normalize_columns
-from .state import AppState, sort_state_from_report
+from .state import AppState, default_sort_state, sort_state_from_report
 from .utils import format_urgency, get_priority_color, get_project_color, is_waiting
 from .widgets import TaskEditor
 
@@ -243,10 +243,11 @@ class TaskProApp(FilterActionsMixin, App):
     def _select_report(self, report, reload: bool = True) -> None:
         self.state.report = report
         self.state.clear_filters()
-        if report is not None:
-            new_sort = sort_state_from_report(report.sort, self.state.columns)
-            if new_sort:
-                self.state.sort_state = new_sort
+        # Every switch settles the order: the report's own, or the default for
+        # the plain pending list and for reports sorted by something that is
+        # not displayed. Otherwise the previous report's sort lingers.
+        report_sort = sort_state_from_report(report.sort, self.state.columns) if report else None
+        self.state.sort_state = report_sort or default_sort_state(self.state.columns)
         self._update_subtitle()
         if reload:
             self.refresh_tasks()
