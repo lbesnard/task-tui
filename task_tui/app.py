@@ -426,7 +426,7 @@ class TaskProApp(FilterActionsMixin, App):
     def action_new_task(self) -> None:
         self.set_modify_mode(True)
         self.state.active_uuid = "NEW"
-        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_wait", "#inp_dep", "#inp_tags"]:
+        for field in ["#inp_desc", "#inp_proj", "#inp_due", "#inp_wait", "#inp_until", "#inp_dep", "#inp_tags"]:
             self.query_one(field).value = ""
         self._set_recur_widgets("")
         self.query_one("#uuid_display").update("NEW TASK")
@@ -796,6 +796,8 @@ class TaskProApp(FilterActionsMixin, App):
                 + ("📌 " if "next" in (task.get("tags") or []) else "")
                 + ("🔁 " if task.get("recur") else "")
                 + ("💤 " if is_waiting(task) else "")
+                # expires by itself; on a recurring task ``until`` ends the series instead
+                + ("⏳ " if task.get("until") and not task.get("recur") else "")
             )
             return f"{icons}{escape(task.get('description', ''))}"
         return escape(cell_text(task, key))
@@ -904,6 +906,7 @@ class TaskProApp(FilterActionsMixin, App):
         due_date = local_stamp(task.get("due"), keep_time=True)
         self.query_one("#inp_due").value = due_date
         self.query_one("#inp_wait").value = local_stamp(task.get("wait"), keep_time=True)
+        self.query_one("#inp_until").value = local_stamp(task.get("until"), keep_time=True)
         self.query_one("#inp_tags").value = ",".join(task.get("tags") or [])
         self.query_one("#inp_dep").value = ", ".join(map(str, task.get("depends") or []))
         self.query_one("#sel_prio").value = task.get("priority", "X")
@@ -969,6 +972,7 @@ class TaskProApp(FilterActionsMixin, App):
             project=self.query_one("#inp_proj").value,
             due=self.query_one("#inp_due").value,
             wait=self.query_one("#inp_wait").value,
+            until=self.query_one("#inp_until").value,
             tags=self.query_one("#inp_tags").value,
             depends=self.query_one("#inp_dep").value,
             priority=self.query_one("#sel_prio").value,
