@@ -94,6 +94,7 @@ uv run task-tui
 | `/`       | Open Fuzzy Search              |
 | `r`       | Refresh task list              |
 | `R`       | Switch Taskwarrior report      |
+| `Ctrl+Z`  | **Back**: clear the project/tag filter, then leave the report for the start list (in Edit Mode: discard the edit) |
 | `V`       | Overviews: stats, summary, calendar, burndown, history, projects, tags |
 | `Y`       | Sync now (`task sync`)         |
 | `u`       | Undo last Taskwarrior action   |
@@ -132,6 +133,7 @@ uv run task-tui
 Taskwarrior [reports](https://taskwarrior.org/docs/report/) are named views (`next`, `minimal`, `list`, `overdue`, ...) defined in your `.taskrc`. Press `R` to pick one; the task list reloads using that report's filter. The active report is shown in the header (`Report: overdue`).
 
 - Choose **all pending** in the picker to return to the default view (every pending task).
+- **Back** (`shortcuts.cancel_edit`, default `Ctrl+Z`) leaves a report without the picker: it returns to the list the app started with, i.e. `ui.default_report` if set, otherwise all pending. If a project/tag filter (`f`) is active, the first press clears the filter and the next one leaves the report.
 - The picker lists every report that Taskwarrior knows about (`task show report.`), including your custom ones.
 - The report's **filter** is applied. Its **sort** is mapped onto the table's sort using the first key only (e.g. `urgency-` sorts by urgency, descending), when that key is a displayed column. You can still re-sort by clicking a header.
 - `limit:` terms such as `limit:page` are ignored, since the list scrolls.

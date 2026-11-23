@@ -136,6 +136,7 @@ class TaskProApp(FilterActionsMixin, App):
         self.no_sync = False
         self._busy = False
         self._recurrence_setting: str | None = None  # read from taskrc on first use
+        self._start_report = None  # ui.default_report once found; None is "all pending"
 
     # ------------------------------------------------------------------ #
     # State property shims (delegate to AppState for backward compat)
@@ -238,6 +239,7 @@ class TaskProApp(FilterActionsMixin, App):
         if report is None:
             self.notify(f"Unknown report '{name}' in config", severity="warning")
         else:
+            self._start_report = report
             self._select_report(report, reload=False)
         self._update_subtitle()
 
@@ -1027,8 +1029,31 @@ class TaskProApp(FilterActionsMixin, App):
         self._with_recurrence_scope([save_uuid] if save_uuid and not rc_overrides else [], run)
 
     def action_cancel_edit(self) -> None:
+        """Discard the edit; in the list, go one step back instead."""
+        was_editing = self.is_modifying
         self.set_modify_mode(False)
         self.query_one(DataTable).focus()
+        if not was_editing:
+            self._step_back()
+
+    def _step_back(self) -> None:
+        """Undo the last narrowing of the list, one step per call.
+
+        A project/tag filter is cleared first. Without one, a report is left
+        for the list the app started with: ``ui.default_report`` if set,
+        otherwise all pending tasks. In that list there is nothing to do.
+        """
+        state = self.state
+        if state.is_project_filter_active or state.is_tag_filter_active:
+            hidden = len(state.raw_tasks) - len(state.get_visible_tasks())
+            state.clear_filters()
+            if hidden:
+                self.update_table_view()
+                self.notify("Filter cleared")
+                return
+            # the filter hid nothing, so clearing it is not a step of its own
+        if state.report != self._start_report:
+            self._select_report(self._start_report)
 
     # ------------------------------------------------------------------ #
     # Helpers
