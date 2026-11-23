@@ -577,6 +577,8 @@ class TestDependsInput:
 
         mock_app.action_fuzzy_find_dep.assert_called_once()
         event.stop.assert_called_once()
+        # without this, Input still inserts the key and leaves a "/" in the field
+        event.prevent_default.assert_called_once()
 
     def test_non_search_key_not_intercepted(self):
         """DependsInput does NOT intercept regular typing keys."""

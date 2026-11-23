@@ -121,6 +121,7 @@ class TestEscapeStaysInTheDialog:
             assert not isinstance(app.screen, FuzzySearchScreen)
             assert app.is_modifying and app.is_dirty
             assert app.query_one("#inp_desc").value == "write the exam"
+            assert app.query_one("#inp_dep").value == "u2"  # no "/" typed into it
             assert app.focused.id == "inp_dep"
 
         drive(scenario, shortcuts={"cancel_edit": "escape"})
