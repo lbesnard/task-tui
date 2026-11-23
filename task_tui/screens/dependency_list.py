@@ -43,3 +43,4 @@ class DependencyListScreen(ModalScreen):
     def on_key(self, event) -> None:
         if event.key == "escape":
             self.dismiss(None)
+            event.stop()

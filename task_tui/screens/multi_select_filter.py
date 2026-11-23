@@ -138,6 +138,7 @@ class MultiSelectFilterScreen(ModalScreen):
         key = event.key
         if key == "escape":
             self.action_apply_filter()
+            event.stop()
         elif key == "j":
             lv.action_cursor_down()
             event.stop()
