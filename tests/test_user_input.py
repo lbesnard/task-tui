@@ -490,6 +490,50 @@ class TestOnKeyHandler:
         app_no_widgets.action_fuzzy_find.assert_called_once()
         app_no_widgets.notify.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "key, character", [("escape", "\x1b"), ("ctrl+z", "\x1a")], ids=["escape", "ctrl+z"]
+    )
+    def test_either_key_of_a_comma_separated_shortcut_does_not_notify(
+        self, app_no_widgets, key, character
+    ):
+        """'escape,ctrl+z' binds two keys; neither is an unbound character.
+
+        Both arrive with a one-character ``event.character``, so comparing the
+        whole shortcut string showed the 'Edit Mode' hint on top of the action.
+        """
+        from textual.binding import Binding
+
+        app_no_widgets.is_modifying = False
+        app_no_widgets.action_cancel_edit = Mock()
+        app_no_widgets.BINDINGS = [Binding("escape,ctrl+z", "cancel_edit", "Back")]
+
+        event = self._make_event(key, character=character)
+        with patch.object(TaskProApp, "focused", new_callable=PropertyMock) as mock_f:
+            mock_f.return_value = None
+            app_no_widgets.on_key(event)
+
+        app_no_widgets.notify.assert_not_called()
+        # Textual's own binding runs the action; on_key must not run it a second time
+        app_no_widgets.action_cancel_edit.assert_not_called()
+        event.stop.assert_not_called()
+
+    def test_comma_separated_shortcut_matched_by_character(self, app_no_widgets):
+        """'ctrl+f, /': the slash arrives as key='slash', so on_key dispatches it."""
+        from textual.binding import Binding
+
+        app_no_widgets.is_modifying = False
+        app_no_widgets.action_fuzzy_find = Mock()
+        app_no_widgets.BINDINGS = [Binding("ctrl+f, /", "fuzzy_find", "Search")]
+
+        event = self._make_event("slash", character="/")
+        with patch.object(TaskProApp, "focused", new_callable=PropertyMock) as mock_f:
+            mock_f.return_value = None
+            app_no_widgets.on_key(event)
+
+        app_no_widgets.action_fuzzy_find.assert_called_once()
+        app_no_widgets.notify.assert_not_called()
+        event.stop.assert_called_once()
+
     def test_shift_s_triggers_save_task(self, app_no_widgets):
         """Pressing Shift+S (key='S') calls action_save_task and stops propagation."""
         app_no_widgets.action_save_task = Mock()

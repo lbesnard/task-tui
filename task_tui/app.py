@@ -182,6 +182,11 @@ class TaskProApp(FilterActionsMixin, App):
             if self.shortcuts.get(sk, defaults.get(sk))
         ]
 
+    @staticmethod
+    def _binding_keys(binding: Binding) -> set[str]:
+        """The keys of a shortcut; several can be given separated by commas."""
+        return {key.strip() for key in binding.key.split(",")}
+
     def _dependency_search_keys(self) -> list[str]:
         keys = self.shortcuts.get("dependency_search", ["/"])
         if isinstance(keys, str):
@@ -279,15 +284,16 @@ class TaskProApp(FilterActionsMixin, App):
             return
 
         if not self.is_modifying and len(event.character or "") == 1:
+            pressed = {event.key, event.character or ""}
             matched = next(
-                (b for b in self.BINDINGS if b.key in (event.key, event.character or "")),
+                (b for b in self.BINDINGS if pressed & self._binding_keys(b)),
                 None,
             )
             if matched is None:
                 self.notify("Press [b]i[/b] to enter Edit Mode", severity="warning")
                 event.stop()
                 return
-            if matched.key != event.key:
+            if event.key not in self._binding_keys(matched):
                 action_method = getattr(self, f"action_{matched.action}", None)
                 if action_method:
                     action_method()
