@@ -19,6 +19,7 @@ class DependsInput(Input):
         ):
             app.action_fuzzy_find_dep()
             event.stop()
+            event.prevent_default()  # or Input types the key into the field as well
 
 
 class PrioritySelect(Select):

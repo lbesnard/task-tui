@@ -39,6 +39,7 @@ class ReportPickerScreen(ModalScreen):
     def on_key(self, event) -> None:
         if event.key == "escape":
             self.dismiss(None)
+            event.stop()
             return
         lv = self.query_one("#fuzzy_list")
         if event.key in ("down", "ctrl+n"):
